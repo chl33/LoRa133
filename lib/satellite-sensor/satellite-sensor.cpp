@@ -36,23 +36,26 @@ Device::Device(uint32_t device_id, const char* name, uint32_t mfg_id, ModuleSyst
       m_manufacturer(_manufacturer(mfg_id)),
       m_seq_id(seq_id),
       m_discovery(_options(m_name, m_manufacturer), module_system),
-      m_vg(m_name.c_str()) {}
+      m_vg(m_name.c_str()),
+      m_dropped_packets("dropped packets", 0, "count", "", 0, m_vg),
+      m_rssi("RSSI", 0, "dB", "", 0, m_vg) {}
 
-void Device::got_packet(uint16_t seq_id) {
+void Device::got_packet(uint16_t seq_id, int rssi) {
   if (seq_id > m_seq_id) {
-    m_dropped_packets += static_cast<int>(seq_id) - m_seq_id;
+    m_dropped_packets = m_dropped_packets.value() + static_cast<int>(seq_id) - 1 - m_seq_id;
   } else if (seq_id == m_seq_id) {
-    // Not sure why this happened.
+    // Not sure why this would happen (maybe not setting seq-id in the sender), so ignore it.
   } else {
-    const uint16_t diff = seq_id - m_seq_id;  // difference with wrapping
+    const uint16_t diff = seq_id - 1 - m_seq_id;  // difference with wrapping
     if (diff < 256) {
-      m_dropped_packets += diff;
+      m_dropped_packets = m_dropped_packets.value() + diff;
     } else {
       // Assume that the remote device reset, so sent seq_id started with 0.
-      m_dropped_packets += seq_id;
+      m_dropped_packets = m_dropped_packets.value() + seq_id;
     }
   }
   m_seq_id = seq_id;
+  m_rssi = rssi;
 }
 
 }  // namespace og3::satellite

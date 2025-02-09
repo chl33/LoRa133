@@ -43,7 +43,7 @@ class Device {
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
   const std::string& manufacturer() const { return m_manufacturer; }
-  const unsigned dropped_packets() const { return m_dropped_packets; }
+  const unsigned dropped_packets() const { return m_dropped_packets.value(); }
 
   FloatSensor* float_sensor(unsigned id) {
     auto iter = m_id_to_float_sensor.find(id);
@@ -55,7 +55,7 @@ class Device {
     return iter.first->second.get();
   }
   // Updates m_dropped_packets.
-  void got_packet(uint16_t seq_id);
+  void got_packet(uint16_t seq_id, int rssi);
 
   VariableGroup& vg() { return m_vg; }
 
@@ -66,8 +66,9 @@ class Device {
   uint16_t m_seq_id;
   HADiscovery m_discovery;
   VariableGroup m_vg;
+  Variable<unsigned> m_dropped_packets;
+  Variable<int> m_rssi;
   std::map<unsigned, std::unique_ptr<FloatSensor>> m_id_to_float_sensor;
-  unsigned m_dropped_packets = 0;
 };
 
 }  // namespace og3::satellite

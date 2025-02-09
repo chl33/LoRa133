@@ -74,15 +74,8 @@ LoRaModule s_lora("lora", LoRaModule::Options(), &s_app, s_vg, _on_lora_initiali
 constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
 
 uint8_t s_pkt_buffer[1024];
-// char s_msg_buffer[1024];
-// ReadingWriter msg_writer("msg", "", &app.readings());
-// ReadingWriter msg_count_writer("msg_count", "", &app.readings());
-int s_pkt_count = 0;
-// ReadingWriter pkt_count_writer("pkt_count", "", &app.readings());
-int s_pkt_err_count = 0;
-// ReadingWriter pkt_err_count_writer("pkt_err_count", "", &app.readings());
 
-// MoisturePacketReader s_pkt_reader;  // (&s_garden_readings)
+Variable<unsigned> s_pkt_count("LoRa packet count", 0, "", "", 0, s_vg);
 
 const char* str(og3_Sensor_Type val) {
   switch (val) {
@@ -117,7 +110,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   satellite::Device* pdevice = nullptr;
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
-    pdevice->got_packet(seq_id);
+    pdevice->got_packet(seq_id, LoRa.packetRssi());
     s_app.log().debugf("Known device id:%u '%s' (dropped=%u).", packet.device_id, pdevice->cname(),
                        pdevice->dropped_packets());
   } else {
@@ -140,6 +133,8 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                                                 &s_app.module_system(), seq_id));
     pdevice = iter.first->second.get();
   }
+
+  s_pkt_count = s_pkt_count.value() + 1;
 
   for (unsigned idx_reading = 0; idx_reading < packet.reading_count; idx_reading++) {
     const auto& reading = packet.reading[idx_reading];
