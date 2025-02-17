@@ -1,16 +1,16 @@
 // Copyright (c) 2025 Chris Lee and contibuters.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 
-// Copyright (c) 2024 Chris Lee and contibuters.
-// Licensed under the MIT license. See LICENSE file in the project root for details.
-
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <SSD1306Wire.h>
 #include <og3/ha_app.h>
 #include <og3/html_table.h>
 #include <og3/lora.h>
+#include <og3/oled_wifi_info.h>
 #include <og3/packet_reader.h>
 #include <og3/shtc3.h>
+#include <og3/text_buffer.h>
 #include <pb_decode.h>
 
 #include <map>
@@ -19,6 +19,10 @@
 #include "satellite-sensor.h"
 
 #define VERSION "0.1.0"
+
+// TODO:
+// - Satelite HA-discovery
+// - Packet indicates debug mode
 
 namespace og3 {
 
@@ -59,6 +63,11 @@ constexpr int kLoraRst = 14;
 constexpr int kLoraDio0 = 2;
 
 Shtc3 s_shtc3(kTemperature, kHumidity, &s_app.module_system(), "temperature", s_vg);
+
+// Delay between updates of the OLED.
+constexpr unsigned kOledSwitchMsec = 5000;
+OledDisplayRing s_oled(&s_app.module_system(), kSoftware, kOledSwitchMsec, Oled::kTenPt,
+                       Oled::Orientation::kDefault);
 
 void _on_lora_initialized() {
   LoRa.setSpreadingFactor(12);
@@ -106,13 +115,16 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
 
   s_app.log().debugf("Parsed device packet (seq_id:%u).", seq_id);
 
+  TextBuffer<64> text;
+  text.add("pkt:%0u dev:%x", seq_id, packet.device_id);
+
   auto dev_iter = s_id_to_device.find(packet.device_id);
   satellite::Device* pdevice = nullptr;
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
     pdevice->got_packet(seq_id, LoRa.packetRssi());
-    s_app.log().debugf("Known device id:%u '%s' (dropped=%u).", packet.device_id, pdevice->cname(),
-                       pdevice->dropped_packets());
+    s_app.log().logf("Known device id:%u '%s' (seq_id=%u, dropped=%u).", packet.device_id,
+                     pdevice->cname(), seq_id, pdevice->dropped_packets());
   } else {
     if (!packet.has_device) {
       s_app.log().logf("No known device with id=%u.", packet.device_id);
@@ -155,8 +167,13 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     }
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %.2f", reading.sensor_id, psensor->cname(), reading.value);
+    const char nc = psensor->cname()[0] ? psensor->cname()[0] : ' ';
+    const char uc = psensor->cunits()[0] ? psensor->cunits()[0] : ' ';
+    text.add(" %c:%.1f%c", nc, reading.value, uc);
   }
   s_app.mqttSend(pdevice->vg());
+  text.split(22);
+  s_oled.display(text.text());
 }
 
 // Global variable for html, so asyncwebserver can send data in the background (single client)
@@ -231,6 +248,10 @@ void loop() {
     const og3::pkt::PacketReader::ParseResult result = reader.parse();
     if (result != og3::pkt::PacketReader::ParseResult::kOk) {
       og3::s_app.log().logf("Failed to parse packet: result=%u.", static_cast<unsigned>(result));
+      if (result == og3::pkt::PacketReader::ParseResult::kBadPrefix) {
+        og3::s_app.log().logf("Prefix: %02x %02x %02x %02x.", og3::s_pkt_buffer[0],
+                              og3::s_pkt_buffer[1], og3::s_pkt_buffer[2], og3::s_pkt_buffer[3]);
+      }
     } else {
       og3::s_app.log().debug("Parsed packet.");
       // for (unsigned idx = 0; idx < reader.num_available...)

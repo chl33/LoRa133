@@ -17,6 +17,8 @@ class Sensor {
 
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
+  const std::string& units() const { return m_units; }
+  const char* cunits() const { return units().c_str(); }
 
  protected:
   const std::string m_name;
