@@ -37,6 +37,17 @@ class FloatSensor : public Sensor {
   FloatVariable m_value;
 };
 
+class IntSensor : public Sensor {
+ public:
+  IntSensor(const char* name, const char* units, Device* device);
+
+  Variable<int>& value() { return m_value; }
+  const Variable<int>& value() const { return m_value; }
+
+ private:
+  Variable<int> m_value;
+};
+
 class Device {
  public:
   Device(uint32_t device_id, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
@@ -56,6 +67,14 @@ class Device {
     auto iter = m_id_to_float_sensor.emplace(id, new FloatSensor(name, units, decimals, this));
     return iter.first->second.get();
   }
+  IntSensor* int_sensor(unsigned id) {
+    auto iter = m_id_to_int_sensor.find(id);
+    return (iter == m_id_to_int_sensor.end()) ? nullptr : iter->second.get();
+  }
+  IntSensor* add_int_sensor(unsigned id, const char* name, const char* units, Device* device) {
+    auto iter = m_id_to_int_sensor.emplace(id, new IntSensor(name, units, this));
+    return iter.first->second.get();
+  }
   // Updates m_dropped_packets.
   void got_packet(uint16_t seq_id, int rssi);
 
@@ -71,6 +90,7 @@ class Device {
   Variable<unsigned> m_dropped_packets;
   Variable<int> m_rssi;
   std::map<unsigned, std::unique_ptr<FloatSensor>> m_id_to_float_sensor;
+  std::map<unsigned, std::unique_ptr<IntSensor>> m_id_to_int_sensor;
 };
 
 }  // namespace og3::satellite

@@ -171,6 +171,28 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     const char uc = psensor->cunits()[0] ? psensor->cunits()[0] : ' ';
     text.add(" %c:%.1f%c", nc, reading.value, uc);
   }
+  for (unsigned idx_reading = 0; idx_reading < packet.i_reading_count; idx_reading++) {
+    const auto& reading = packet.i_reading[idx_reading];
+    satellite::IntSensor* psensor = pdevice->int_sensor(reading.sensor_id);
+
+    if (!psensor) {
+      if (!reading.has_sensor) {
+        s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id,
+                         packet.device_id);
+        continue;
+      } else {
+        psensor = pdevice->add_int_sensor(reading.sensor_id, reading.sensor.name,
+                                          reading.sensor.units, pdevice);
+        s_app.log().logf(" - set sensor:%u (%s) in device:%u", reading.sensor_id,
+                         reading.sensor.name, packet.device_id);
+      }
+    }
+    psensor->value() = reading.value;
+    s_app.log().logf(" %u: %s ->  %d", reading.sensor_id, psensor->cname(), reading.value);
+    const char nc = psensor->cname()[0] ? psensor->cname()[0] : ' ';
+    const char uc = psensor->cunits()[0] ? psensor->cunits()[0] : ' ';
+    text.add(" %c:%.1f%c", nc, reading.value, uc);
+  }
   s_app.mqttSend(pdevice->vg());
   text.split(22);
   s_oled.display(text.text());

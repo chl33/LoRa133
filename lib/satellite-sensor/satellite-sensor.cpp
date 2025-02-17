@@ -29,6 +29,10 @@ FloatSensor::FloatSensor(const char* name, const char* units, unsigned decimals,
     : Sensor(name, units, device),
       m_value(m_name.c_str(), 0.0f, m_units.c_str(), "", 0, decimals, device->vg()) {}
 
+IntSensor::IntSensor(const char* name, const char* units, Device* device)
+    : Sensor(name, units, device),
+      m_value(m_name.c_str(), 0.0f, m_units.c_str(), "", 0, device->vg()) {}
+
 Device::Device(uint32_t device_id, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
                uint16_t seq_id)
     : m_device_id(device_id),
