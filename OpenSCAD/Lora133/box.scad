@@ -12,7 +12,7 @@ gap = 0.2;
 corner_radius = 2;
 mount_offset = pad_space;
 
-space_above_board = 12;
+space_above_board = 12.5;
 space_below_board = 5;
 inner_dims = (board_dims
 	      + Z*(space_above_board+space_below_board)
@@ -62,7 +62,7 @@ module Lora133_box(top) {
 	}
       }
       // Hole for antenna.
-      translate([outer_dims[0]-wall-1, 14, -1]) cube([wall+2, 10, 13]);
+      translate([outer_dims[0]-wall-1, 12, -1]) cube([wall+2, 10, 14]);
       // Hole for usb
       translate([23, -1, wall + space_below_board + board_thickness-2]) cube([9.5, wall+2, 3.5]);
       
