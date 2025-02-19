@@ -20,6 +20,13 @@ std::string _manufacturer(uint32_t id) {
 HADiscovery::Options _options(const std::string& device_name, const std::string& manufacturer) {
   return HADiscovery::Options(manufacturer.c_str(), "satellite", "satellite", device_name.c_str());
 }
+
+std::string _device_name(const char* name, uint32_t device_id) {
+  char buffer[80];
+  const auto len = snprintf(buffer, sizeof(buffer), "%s_%x", name, device_id);
+  return std::string(buffer, len);
+}
+
 }  // namespace
 
 Sensor::Sensor(const char* name, const char* units, Device* device)
@@ -36,7 +43,7 @@ IntSensor::IntSensor(const char* name, const char* units, Device* device)
 Device::Device(uint32_t device_id, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
                uint16_t seq_id)
     : m_device_id(device_id),
-      m_name(name),
+      m_name(_device_name(name, device_id)),
       m_manufacturer(_manufacturer(mfg_id)),
       m_seq_id(seq_id),
       m_discovery(_options(m_name, m_manufacturer), module_system),

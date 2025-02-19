@@ -56,6 +56,7 @@ VariableGroup s_vg("lora");
 static const char kTemperature[] = "temperature";
 static const char kHumidity[] = "humidity";
 
+// Id needs to be included in device name.
 // Hardware config
 // Define the pins used by the transceiver module.
 constexpr int kLoraSS = 5;
@@ -161,7 +162,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
         constexpr unsigned kDecimals = 2;  // Depend on type???
         psensor = pdevice->add_float_sensor(reading.sensor_id, reading.sensor.name,
                                             reading.sensor.units, kDecimals, pdevice);
-        s_app.log().logf(" - set sensor:%u (%s) in device:%u", reading.sensor_id,
+        s_app.log().logf(" - set sensor:%u (%s) in device:%x", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
       }
     }
