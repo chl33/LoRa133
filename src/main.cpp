@@ -18,10 +18,9 @@
 #include "device.pb.h"
 #include "satellite-sensor.h"
 
-#define VERSION "0.1.0"
+#define VERSION "0.2.0"
 
 // TODO:
-// - Satelite HA-discovery
 // - Packet indicates debug mode
 
 namespace og3 {
@@ -76,6 +75,7 @@ void _on_lora_initialized() {
   // The sync word assures you don't get LoRa messages from other LoRa transceivers
   // ranges from 0-0xFF
   LoRa.setSyncWord(0xF3);
+  LoRa.enableCrc();
 }
 
 LoRaModule s_lora("lora", LoRaModule::Options(), &s_app, s_vg, _on_lora_initialized);
@@ -92,13 +92,13 @@ const char* str(og3_Sensor_Type val) {
     case og3_Sensor_Type_TYPE_UNSPECIFIED:
       return "unspecified";
     case og3_Sensor_Type_TYPE_VOLTAGE:
-      return "voltage";
+      return ha::device_class::sensor::kVoltage;
     case og3_Sensor_Type_TYPE_TEMPERATURE:
-      return "temperature";
+      return ha::device_class::sensor::kTemperature;
     case og3_Sensor_Type_TYPE_HUMIDITY:
-      return "humidity";
+      return ha::device_class::sensor::kHumidity;
     case og3_Sensor_Type_TYPE_MOISTURE:
-      return "moisture";
+      return ha::device_class::sensor::kMoisture;
     default:
       return "???";
   }
@@ -117,7 +117,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   s_app.log().debugf("Parsed device packet (seq_id:%u).", seq_id);
 
   TextBuffer<64> text;
-  text.add("pkt:%0u dev:%x", seq_id, packet.device_id);
+  text.addf("pkt:%0u dev:%x", seq_id, packet.device_id);
 
   auto dev_iter = s_id_to_device.find(packet.device_id);
   satellite::Device* pdevice = nullptr;
@@ -142,8 +142,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       s_app.log().logf(" sw: %u.%u.%u", ver.major, ver.minor, ver.patch);
     }
     auto iter = s_id_to_device.emplace(
-        packet.device_id, new satellite::Device(packet.device_id, device.name, device.manufacturer,
-                                                &s_app.module_system(), seq_id));
+        packet.device_id,
+        new satellite::Device(packet.device_id, device.name, device.manufacturer,
+                              &s_app.module_system(), &s_app.ha_discovery(), seq_id));
     pdevice = iter.first->second.get();
   }
 
@@ -159,9 +160,10 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                          packet.device_id);
         continue;
       } else {
-        constexpr unsigned kDecimals = 2;  // Depend on type???
+        constexpr unsigned kDecimals = 1;  // Depend on type???
         psensor = pdevice->add_float_sensor(reading.sensor_id, reading.sensor.name,
-                                            reading.sensor.units, kDecimals, pdevice);
+                                            str(reading.sensor.type), reading.sensor.units,
+                                            kDecimals, pdevice);
         s_app.log().logf(" - set sensor:%u (%s) in device:%x", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
       }
@@ -169,8 +171,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %.2f", reading.sensor_id, psensor->cname(), reading.value);
     const char nc = psensor->cname()[0] ? psensor->cname()[0] : ' ';
-    const char uc = psensor->cunits()[0] ? psensor->cunits()[0] : ' ';
-    text.add(" %c:%.1f%c", nc, reading.value, uc);
+    text.addf(" %c:%.0f", nc, reading.value);
   }
   for (unsigned idx_reading = 0; idx_reading < packet.i_reading_count; idx_reading++) {
     const auto& reading = packet.i_reading[idx_reading];
@@ -182,7 +183,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                          packet.device_id);
         continue;
       } else {
-        psensor = pdevice->add_int_sensor(reading.sensor_id, reading.sensor.name,
+        psensor = pdevice->add_int_sensor(reading.sensor_id, reading.sensor.name, nullptr,
                                           reading.sensor.units, pdevice);
         s_app.log().logf(" - set sensor:%u (%s) in device:%u", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
@@ -191,8 +192,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %d", reading.sensor_id, psensor->cname(), reading.value);
     const char nc = psensor->cname()[0] ? psensor->cname()[0] : ' ';
-    const char uc = psensor->cunits()[0] ? psensor->cunits()[0] : ' ';
-    text.add(" %c:%.1f%c", nc, reading.value, uc);
+    text.addf(" %c:%d", nc, reading.value);
   }
   s_app.mqttSend(pdevice->vg());
   text.split(22);
@@ -231,15 +231,6 @@ void setup() {
   og3::s_app.web_server().on("/", og3::handleWebRoot);
   og3::s_app.web_server().on("/config", [](AsyncWebServerRequest* request) {});
   og3::s_app.setup();
-
-#if 0
-  snprintf(cl3::s_msg_buffer, sizeof(cl3::s_msg_buffer), "No message");
-  cl3::msg_writer.set(cl3::s_msg_buffer);
-  cl3::msg_count_writer.set(0);
-  cl3::pkt_count_writer.set(cl3::s_pkt_count);
-  cl3::pkt_err_count_writer.set(cl3::s_pkt_err_count);
-  cl3::app.events().runIn(60 * cl3::kMsecInSec, cl3::sendStatusMqtt);
-#endif
 }
 
 void loop() {
@@ -249,15 +240,14 @@ void loop() {
     return;
   }
 
-  // try to parse packet
+  // Try to parse a packet.
   const int packetSize = LoRa.parsePacket();
   if (!packetSize) {
     return;
   }
-  og3::s_app.log().logf("Got packet: %d bytes.", packetSize);
 
-  // received a packetg
-  // Serial.print("Received packet '");
+  // Received a packet.
+  og3::s_app.log().logf("Got packet: %d bytes.", packetSize);
 
   // read packet
   while (LoRa.available()) {
@@ -265,7 +255,6 @@ void loop() {
     const int nbytes_available = LoRa.available();
     const int nbytes = std::min(nbytes_available, buffer_bytes);
     LoRa.readBytes(og3::s_pkt_buffer, nbytes);
-    // og3::pkt_count_writer.set(++og3::s_pkt_count);
 
     og3::pkt::PacketReader reader(og3::s_pkt_buffer, sizeof(og3::s_pkt_buffer));
     const og3::pkt::PacketReader::ParseResult result = reader.parse();
@@ -284,8 +273,6 @@ void loop() {
       if (!reader.get_msg(0, &msg, &msg_type, &msg_size)) {
         og3::s_app.log().log("Failed to read message from packett.");
       } else {
-        // constexpr uint32_t kCleeOrg = 0xc133;
-        // constexpr uint16_t kDevicePktType = 0xde1c;
         switch (msg_type) {
           case og3::kDevicePktType:
             og3::parse_device_packet(reader.seq_id(), msg, msg_size);

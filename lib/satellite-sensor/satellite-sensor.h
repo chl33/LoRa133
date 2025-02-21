@@ -13,22 +13,27 @@ class Device;
 
 class Sensor {
  public:
-  Sensor(const char* name, const char* units, Device* device);
+  Sensor(const char* name, const char* device_class, const char* units, Device* device);
 
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
+  const std::string& device_class() const { return m_device_class; }
+  const char* cdevice_class() const { return device_class().c_str(); }
   const std::string& units() const { return m_units; }
   const char* cunits() const { return units().c_str(); }
 
  protected:
   const std::string m_name;
+  const std::string m_device_class;
   const std::string m_units;
+  const std::string m_description;
   Device* m_device;
 };
 
 class FloatSensor : public Sensor {
  public:
-  FloatSensor(const char* name, const char* units, unsigned decimals, Device* device);
+  FloatSensor(const char* name, const char* device_class, const char* units, unsigned decimals,
+              Device* device);
 
   FloatVariable& value() { return m_value; }
   const FloatVariable& value() const { return m_value; }
@@ -39,7 +44,7 @@ class FloatSensor : public Sensor {
 
 class IntSensor : public Sensor {
  public:
-  IntSensor(const char* name, const char* units, Device* device);
+  IntSensor(const char* name, const char* device_class, const char* units, Device* device);
 
   Variable<int>& value() { return m_value; }
   const Variable<int>& value() const { return m_value; }
@@ -50,11 +55,13 @@ class IntSensor : public Sensor {
 
 class Device {
  public:
-  Device(uint32_t device_id, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
-         uint16_t seq_id);
+  Device(uint32_t device_id_num, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
+         HADiscovery* ha_discovery, uint16_t seq_id);
 
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
+  const std::string& device_id() const { return m_device_id; }
+  const char* cdevice_id() const { return device_id().c_str(); }
   const std::string& manufacturer() const { return m_manufacturer; }
   const unsigned dropped_packets() const { return m_dropped_packets.value(); }
 
@@ -62,30 +69,34 @@ class Device {
     auto iter = m_id_to_float_sensor.find(id);
     return (iter == m_id_to_float_sensor.end()) ? nullptr : iter->second.get();
   }
-  FloatSensor* add_float_sensor(unsigned id, const char* name, const char* units, unsigned decimals,
-                                Device* device) {
-    auto iter = m_id_to_float_sensor.emplace(id, new FloatSensor(name, units, decimals, this));
+  FloatSensor* add_float_sensor(unsigned id, const char* name, const char* device_class,
+                                const char* units, unsigned decimals, Device* device) {
+    auto iter = m_id_to_float_sensor.emplace(
+        id, new FloatSensor(name, device_class, units, decimals, this));
     return iter.first->second.get();
   }
   IntSensor* int_sensor(unsigned id) {
     auto iter = m_id_to_int_sensor.find(id);
     return (iter == m_id_to_int_sensor.end()) ? nullptr : iter->second.get();
   }
-  IntSensor* add_int_sensor(unsigned id, const char* name, const char* units, Device* device) {
-    auto iter = m_id_to_int_sensor.emplace(id, new IntSensor(name, units, this));
+  IntSensor* add_int_sensor(unsigned id, const char* name, const char* device_class,
+                            const char* units, Device* device) {
+    auto iter = m_id_to_int_sensor.emplace(id, new IntSensor(name, device_class, units, this));
     return iter.first->second.get();
   }
   // Updates m_dropped_packets.
   void got_packet(uint16_t seq_id, int rssi);
 
   VariableGroup& vg() { return m_vg; }
+  HADiscovery& ha_discovery() { return *m_discovery; }
 
  private:
-  const uint32_t m_device_id;
+  const uint32_t m_device_id_num;
   const std::string m_name;
+  const std::string m_device_id;
   const std::string m_manufacturer;
   uint16_t m_seq_id;
-  HADiscovery m_discovery;
+  HADiscovery* m_discovery;
   VariableGroup m_vg;
   Variable<unsigned> m_dropped_packets;
   Variable<int> m_rssi;
