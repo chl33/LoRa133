@@ -104,6 +104,21 @@ const char* str(og3_Sensor_Type val) {
   }
 }
 
+unsigned decimals(og3_Sensor_Type val) {
+  switch (val) {
+    case og3_Sensor_Type_TYPE_UNSPECIFIED:
+      return 0;
+    case og3_Sensor_Type_TYPE_VOLTAGE:
+      return 2;
+    case og3_Sensor_Type_TYPE_TEMPERATURE:
+    case og3_Sensor_Type_TYPE_HUMIDITY:
+    case og3_Sensor_Type_TYPE_MOISTURE:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 std::map<uint32_t, std::unique_ptr<satellite::Device>> s_id_to_device;
 
 void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_size) {
@@ -160,10 +175,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                          packet.device_id);
         continue;
       } else {
-        constexpr unsigned kDecimals = 1;  // Depend on type???
         psensor = pdevice->add_float_sensor(reading.sensor_id, reading.sensor.name,
                                             str(reading.sensor.type), reading.sensor.units,
-                                            kDecimals, pdevice);
+                                            decimals(reading.sensor.type), pdevice);
         s_app.log().logf(" - set sensor:%u (%s) in device:%x", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
       }

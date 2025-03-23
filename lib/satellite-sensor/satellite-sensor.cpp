@@ -4,15 +4,17 @@ namespace og3::satellite {
 namespace {
 constexpr uint32_t kC133Org = 0xc133;
 
+bool is_legal(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || (c == '_') ||
+         (c == '-');
+}
+
 std::string legalize(const char* name) {
   std::string lname(name);
   for (unsigned i = 0; i < lname.length(); i++) {
-    const char c = lname[i];
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || (c == '_') ||
-        (c == '-')) {
-      continue;
+    if (!is_legal(lname[i])) {
+      lname[i] = '_';
     }
-    lname[i] = '_';
   }
   return lname;
 }
@@ -59,6 +61,16 @@ FloatSensor::FloatSensor(const char* name, const char* device_class, const char*
   entry.device_name = device->cname();
   entry.device_id = device->cdevice_id();
   entry.manufacturer = device->manufacturer().c_str();
+  char entry_name[80];
+  {
+    const int len = snprintf(entry_name, sizeof(entry_name), "%s_%s", device->cname(), name);
+    for (int i = 0; i < len; i++) {
+      if (!is_legal(entry_name[i])) {
+        entry_name[i] = '_';
+      }
+    }
+  }
+  entry.entry_name = entry_name;
   // entry.software
   // entry.model
   // entry.icon
@@ -74,6 +86,16 @@ IntSensor::IntSensor(const char* name, const char* device_class, const char* uni
   entry.device_name = device->cname();
   entry.device_id = device->cdevice_id();
   entry.manufacturer = device->manufacturer().c_str();
+  char entry_name[80];
+  {
+    const int len = snprintf(entry_name, sizeof(entry_name), "%s_%s", device->cname(), name);
+    for (int i = 0; i < len; i++) {
+      if (!is_legal(entry_name[i])) {
+        entry_name[i] = '_';
+      }
+    }
+  }
+  entry.entry_name = entry_name;
   // entry.software
   // entry.model
   // entry.icon

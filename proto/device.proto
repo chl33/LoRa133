@@ -49,6 +49,6 @@ message Device {
 message Packet {
   uint32 device_id = 1;
   Device device = 2;
-  repeated FloatSensorReading reading = 3 [(nanopb).max_length = 40, (nanopb).max_count = 4];
-  repeated IntSensorReading i_reading = 4 [(nanopb).max_length = 40, (nanopb).max_count = 4];
+  repeated FloatSensorReading reading = 3 [(nanopb).max_length = 120, (nanopb).max_count = 8];
+  repeated IntSensorReading i_reading = 4 [(nanopb).max_length = 120, (nanopb).max_count = 8];
 }
