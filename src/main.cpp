@@ -18,7 +18,7 @@
 #include "device.pb.h"
 #include "satellite-sensor.h"
 
-#define VERSION "0.2.0"
+#define VERSION "0.3.0"
 
 // TODO:
 // - Packet indicates debug mode
@@ -86,11 +86,15 @@ constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
 uint8_t s_pkt_buffer[1024];
 
 Variable<unsigned> s_pkt_count("LoRa packet count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_prefix_count("bad prefix count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_crc_count("bad crc count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_size_count("bad size count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_version_count("bad version count", 0, "", "", 0, s_vg);
 
 const char* str(og3_Sensor_Type val) {
   switch (val) {
     case og3_Sensor_Type_TYPE_UNSPECIFIED:
-      return "unspecified";
+      return "None";
     case og3_Sensor_Type_TYPE_VOLTAGE:
       return ha::device_class::sensor::kVoltage;
     case og3_Sensor_Type_TYPE_TEMPERATURE:
@@ -237,6 +241,55 @@ void handleWebRoot(AsyncWebServerRequest* request) {
   sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
 }
 
+void process_lora_packets() {
+  const int buffer_bytes = sizeof(s_pkt_buffer);
+  const int nbytes_available = LoRa.available();
+  const int nbytes = std::min(nbytes_available, buffer_bytes);
+  LoRa.readBytes(s_pkt_buffer, nbytes);
+
+  pkt::PacketReader reader(s_pkt_buffer, sizeof(s_pkt_buffer));
+  switch (reader.parse()) {
+    case pkt::PacketReader::ParseResult::kOk:
+      break;
+    case pkt::PacketReader::ParseResult::kBadPrefix:
+      s_app.log().logf("Pailed to parse packet: bad prefix. %02x %02x %02x %02x.", s_pkt_buffer[0],
+                       s_pkt_buffer[1], s_pkt_buffer[2], s_pkt_buffer[3]);
+      s_err_prefix_count = s_err_prefix_count.value() + 1;
+      return;
+    case pkt::PacketReader::ParseResult::kBadCrc:
+      s_app.log().logf("Failed to parse packet: Bad CRC. packet:%04x computed:%04x.",
+                       reader.packet_crc(), reader.computed_crc());
+      s_err_crc_count = s_err_crc_count.value() + 1;
+      return;
+    case pkt::PacketReader::ParseResult::kBadSize:
+      s_app.log().log("Failed to parse packet: Bad size.");
+      s_err_size_count = s_err_size_count.value() + 1;
+      return;
+    case pkt::PacketReader::ParseResult::kBadVersion:
+      s_app.log().log("Failed to parse packet: Bad version.");
+      s_err_version_count = s_err_version_count.value() + 1;
+      return;
+  }
+
+  s_app.log().debug("Parsed packet.");
+  const uint8_t* msg = nullptr;
+  uint16_t msg_type = 0;
+  std::size_t msg_size = 0;
+  if (!reader.get_msg(0, &msg, &msg_type, &msg_size)) {
+    s_app.log().log("Failed to read message from packett.");
+    return;
+  }
+
+  switch (msg_type) {
+    case kDevicePktType:
+      parse_device_packet(reader.seq_id(), msg, msg_size);
+      break;
+    default:
+      s_app.log().logf("Unknown message type in packet: 0x%X.", msg_type);
+      break;
+  }
+}
+
 }  // namespace og3
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -265,41 +318,6 @@ void loop() {
 
   // read packet
   while (LoRa.available()) {
-    const int buffer_bytes = sizeof(og3::s_pkt_buffer);
-    const int nbytes_available = LoRa.available();
-    const int nbytes = std::min(nbytes_available, buffer_bytes);
-    LoRa.readBytes(og3::s_pkt_buffer, nbytes);
-
-    og3::pkt::PacketReader reader(og3::s_pkt_buffer, sizeof(og3::s_pkt_buffer));
-    const og3::pkt::PacketReader::ParseResult result = reader.parse();
-    if (result != og3::pkt::PacketReader::ParseResult::kOk) {
-      og3::s_app.log().logf("Failed to parse packet: result=%u.", static_cast<unsigned>(result));
-      if (result == og3::pkt::PacketReader::ParseResult::kBadPrefix) {
-        og3::s_app.log().logf("Prefix: %02x %02x %02x %02x.", og3::s_pkt_buffer[0],
-                              og3::s_pkt_buffer[1], og3::s_pkt_buffer[2], og3::s_pkt_buffer[3]);
-      }
-    } else {
-      og3::s_app.log().debug("Parsed packet.");
-      // for (unsigned idx = 0; idx < reader.num_available...)
-      const uint8_t* msg = nullptr;
-      uint16_t msg_type = 0;
-      std::size_t msg_size = 0;
-      if (!reader.get_msg(0, &msg, &msg_type, &msg_size)) {
-        og3::s_app.log().log("Failed to read message from packett.");
-      } else {
-        switch (msg_type) {
-          case og3::kDevicePktType:
-            og3::parse_device_packet(reader.seq_id(), msg, msg_size);
-            break;
-          default:
-            og3::s_app.log().logf("Unknown message type in packet: 0x%X.", msg_type);
-            break;
-        }
-      }
-    }
-
-    // print RSSI of packet
-    // Serial.print("' with RSSI ");
-    // Serial.println(LoRa.packetRssi());
+    og3::process_lora_packets();
   }
 }

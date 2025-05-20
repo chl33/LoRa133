@@ -15,3 +15,4 @@ secrets*.yaml
 /KiCAD/LoRa133/*-backups/
 /KiCAD/LoRa133/Gerber/
 /compile_commands.json
+/.cache/

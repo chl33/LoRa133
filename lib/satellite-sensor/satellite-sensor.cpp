@@ -113,8 +113,32 @@ Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
       m_seq_id(seq_id),
       m_discovery(ha_discovery),
       m_vg(m_name.c_str(), m_device_id.c_str()),
-      m_dropped_packets("dropped packets", 0, "count", "", 0, m_vg),
-      m_rssi("RSSI", 0, "dB", "", 0, m_vg) {}
+      m_dropped_packets("dropped_packets", 0, "count", "dropped packets", 0, m_vg),
+      m_rssi("RSSI", 0, "dB", "", 0, m_vg) {
+  JsonDocument json;
+  {
+    HADiscovery::Entry entry(m_dropped_packets, ha::device_type::kSensor, "None");
+    entry.device_name = cname();
+    entry.device_id = cdevice_id();
+    entry.manufacturer = manufacturer().c_str();
+    char entry_name[80];
+    snprintf(entry_name, sizeof(entry_name), "%s_%s", cname(), "dropped_packets");
+    entry.entry_name = entry_name;
+    m_discovery->addEntry(&json, entry);
+  }
+  json.clear();
+  {
+    HADiscovery::Entry entry(m_rssi, ha::device_type::kSensor,
+                             ha::device_class::sensor::kSignalStrength);
+    entry.device_name = cname();
+    entry.device_id = cdevice_id();
+    entry.manufacturer = manufacturer().c_str();
+    char entry_name[80];
+    snprintf(entry_name, sizeof(entry_name), "%s_%s", cname(), "rssi");
+    entry.entry_name = entry_name;
+    m_discovery->addEntry(&json, entry);
+  }
+}
 
 void Device::got_packet(uint16_t seq_id, int rssi) {
   if (seq_id > m_seq_id) {
