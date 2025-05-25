@@ -143,11 +143,12 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
     pdevice->got_packet(seq_id, LoRa.packetRssi());
-    s_app.log().logf("Known device id:%u '%s' (seq_id=%u, dropped=%u).", packet.device_id,
-                     pdevice->cname(), seq_id, pdevice->dropped_packets());
+    s_app.log().logf("Known device id:%u %s'%s' (seq_id=%u, dropped=%u).", packet.device_id,
+                     packet.has_device ? "(dev info sent) " : "", pdevice->cname(), seq_id,
+                     pdevice->dropped_packets());
   } else {
     if (!packet.has_device) {
-      s_app.log().logf("No known device with id=%u.", packet.device_id);
+      s_app.log().logf("No known device with id=%u (seq_id=%u).", packet.device_id, seq_id);
       return;
     }
     const auto& device = packet.device;
@@ -185,6 +186,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
         s_app.log().logf(" - set sensor:%u (%s) in device:%x", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
       }
+    } else if (reading.has_sensor) {
+      s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", reading.sensor_id,
+                       reading.sensor.name, reading.sensor.units, packet.device_id);
     }
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %.2f", reading.sensor_id, psensor->cname(), reading.value);
@@ -206,6 +210,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
         s_app.log().logf(" - set sensor:%u (%s) in device:%u", reading.sensor_id,
                          reading.sensor.name, packet.device_id);
       }
+    } else if (reading.has_sensor) {
+      s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", reading.sensor_id,
+                       reading.sensor.name, reading.sensor.units, packet.device_id);
     }
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %d", reading.sensor_id, psensor->cname(), reading.value);

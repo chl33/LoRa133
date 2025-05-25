@@ -81,7 +81,7 @@ FloatSensor::FloatSensor(const char* name, const char* device_class, const char*
 
 IntSensor::IntSensor(const char* name, const char* device_class, const char* units, Device* device)
     : Sensor(name, device_class, units, device),
-      m_value(m_name.c_str(), 0.0f, m_units.c_str(), "", 0, device->vg()) {
+      m_value(m_name.c_str(), 0, m_units.c_str(), "", 0, device->vg()) {
   HADiscovery::Entry entry(m_value, ha::device_type::kSensor, device_class);
   entry.device_name = device->cname();
   entry.device_id = device->cdevice_id();
