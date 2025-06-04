@@ -9,14 +9,24 @@ bool is_legal(char c) {
          (c == '-');
 }
 
-std::string legalize(const char* name) {
-  std::string lname(name);
-  for (unsigned i = 0; i < lname.length(); i++) {
-    if (!is_legal(lname[i])) {
-      lname[i] = '_';
+void make_legal(char* name, size_t len) {
+  for (int i = 0; i < len; i++) {
+    if (!is_legal(name[i])) {
+      name[i] = '_';
     }
   }
+}
+
+std::string legalize(const char* name) {
+  std::string lname(name);
+  make_legal(&lname[0], lname.length());
   return lname;
+}
+
+void make_entry_name(char* entry_name, size_t entry_name_size, const char* device,
+                     const char* name) {
+  const int len = snprintf(entry_name, entry_name_size, "%s_%s", device, name);
+  make_legal(entry_name, len);
 }
 
 std::string _manufacturer(uint32_t id) {
@@ -62,14 +72,7 @@ FloatSensor::FloatSensor(const char* name, const char* device_class, const char*
   entry.device_id = device->cdevice_id();
   entry.manufacturer = device->manufacturer().c_str();
   char entry_name[80];
-  {
-    const int len = snprintf(entry_name, sizeof(entry_name), "%s_%s", device->cname(), name);
-    for (int i = 0; i < len; i++) {
-      if (!is_legal(entry_name[i])) {
-        entry_name[i] = '_';
-      }
-    }
-  }
+  make_entry_name(entry_name, sizeof(entry_name), device->cname(), name);
   entry.entry_name = entry_name;
   // entry.software
   // entry.model
@@ -87,14 +90,7 @@ IntSensor::IntSensor(const char* name, const char* device_class, const char* uni
   entry.device_id = device->cdevice_id();
   entry.manufacturer = device->manufacturer().c_str();
   char entry_name[80];
-  {
-    const int len = snprintf(entry_name, sizeof(entry_name), "%s_%s", device->cname(), name);
-    for (int i = 0; i < len; i++) {
-      if (!is_legal(entry_name[i])) {
-        entry_name[i] = '_';
-      }
-    }
-  }
+  make_entry_name(entry_name, sizeof(entry_name), device->cname(), name);
   entry.entry_name = entry_name;
   // entry.software
   // entry.model
@@ -122,7 +118,7 @@ Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
     entry.device_id = cdevice_id();
     entry.manufacturer = manufacturer().c_str();
     char entry_name[80];
-    snprintf(entry_name, sizeof(entry_name), "%s_%s", cname(), "dropped_packets");
+    make_entry_name(entry_name, sizeof(entry_name), cname(), "dropped_packets");
     entry.entry_name = entry_name;
     m_discovery->addEntry(&json, entry);
   }
@@ -134,7 +130,7 @@ Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
     entry.device_id = cdevice_id();
     entry.manufacturer = manufacturer().c_str();
     char entry_name[80];
-    snprintf(entry_name, sizeof(entry_name), "%s_%s", cname(), "rssi");
+    make_entry_name(entry_name, sizeof(entry_name), cname(), "rssi");
     entry.entry_name = entry_name;
     m_discovery->addEntry(&json, entry);
   }
