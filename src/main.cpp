@@ -297,6 +297,15 @@ void process_lora_packets() {
   }
 }
 
+// A periodic task to send basic app information every 5 minutes.
+PeriodicTaskScheduler s_mqtt_scheduler(
+    10 * og3::kMsecInSec, 5 * og3::kMsecInMin,
+    []() {
+      s_shtc3.read();
+      s_app.mqttSend(s_vg);
+    },
+    &s_app.tasks());
+
 }  // namespace og3
 
 ////////////////////////////////////////////////////////////////////////////////
