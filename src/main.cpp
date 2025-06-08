@@ -9,19 +9,24 @@
 #include <og3/lora.h>
 #include <og3/oled_wifi_info.h>
 #include <og3/packet_reader.h>
+#include <og3/satellite.pb.h>
 #include <og3/shtc3.h>
 #include <og3/text_buffer.h>
 #include <pb_decode.h>
 
 #include <map>
 
-#include "device.pb.h"
+#include "og3/constants.h"
 #include "satellite-sensor.h"
 
-#define VERSION "0.3.0"
+#define VERSION "0.4.0"
 
 // TODO:
-// - Packet indicates debug mode
+// - Make a new project og3-satellite
+//   - Move protos.
+//   - Update protos: describe sensor without sensor reading.
+//   - Script to build, including protos.
+// - LoRa moves to og3-satellite, updated og3.
 
 namespace og3 {
 
@@ -64,21 +69,35 @@ constexpr int kLoraDio0 = 2;
 
 Shtc3 s_shtc3(kTemperature, kHumidity, &s_app.module_system(), "temperature", s_vg);
 
+// Have oled display IP address or AP status.
+og3::OledWifiInfo wifi_infof(&s_app.tasks());
+
 // Delay between updates of the OLED.
-constexpr unsigned kOledSwitchMsec = 5000;
+constexpr unsigned kOledSwitchMsec = 10 * kMsecInSec;
 OledDisplayRing s_oled(&s_app.module_system(), kSoftware, kOledSwitchMsec, Oled::kTenPt,
                        Oled::Orientation::kDefault);
 
-void _on_lora_initialized() {
-  LoRa.setSpreadingFactor(12);
-  // Change sync word (0xF3) to match the receiver
-  // The sync word assures you don't get LoRa messages from other LoRa transceivers
-  // ranges from 0-0xFF
-  LoRa.setSyncWord(0xF3);
-  LoRa.enableCrc();
-}
+auto s_lora_options = []() -> LoRaModule::Options {
+  LoRaModule::Options opts;
+  opts.sync_word = 0xF0;
+  opts.enable_crc = true;
 
-LoRaModule s_lora("lora", LoRaModule::Options(), &s_app, s_vg, _on_lora_initialized);
+  opts.frequency = lora::Frequency::k915MHz;
+  opts.spreading_factor = lora::SpreadingFactor::kSF8;
+  opts.signal_bandwidth = lora::SignalBandwidth::k125kHz;
+
+  opts.config_options = static_cast<LoRaModule::OptionSelect>(LoRaModule::kOptionSyncWord |
+                                                              LoRaModule::kOptionSpreadingFactor |
+                                                              LoRaModule::kOptionSignalBandwidth);
+  opts.settable_options = static_cast<LoRaModule::OptionSelect>(LoRaModule::kOptionSyncWord |
+                                                                LoRaModule::kOptionSpreadingFactor |
+                                                                LoRaModule::kOptionSignalBandwidth);
+
+  return opts;
+};
+
+VariableGroup s_lora_vg("lora");
+LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
 
 // Update readings only 1/minute maximum.
 constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
@@ -170,25 +189,45 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
 
   s_pkt_count = s_pkt_count.value() + 1;
 
+  // Read the sensor entries.
+  for (unsigned idx_sensor = 0; idx_sensor < packet.sensor_count; idx_sensor++) {
+    const auto& sensor = packet.sensor[idx_sensor];
+    if (sensor.type == og3_Sensor_Type_TYPE_INT_NUMBER) {
+      // IntSensor
+      auto* psensor = pdevice->int_sensor(sensor.id);
+      if (!psensor) {
+        pdevice->add_int_sensor(sensor.id, sensor.name, nullptr, sensor.units, pdevice);
+        s_app.log().logf(" - set int sensor:%u (%s) in device:%u", sensor.id, sensor.name,
+                         packet.device_id);
+      } else {
+        // TODO: update sensor entry if anything changed.
+        s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", sensor.id, sensor.name,
+                         sensor.units, packet.device_id);
+      }
+    } else {
+      // FloatSensor
+      satellite::FloatSensor* psensor = pdevice->float_sensor(sensor.id);
+      if (!psensor) {
+        pdevice->add_float_sensor(sensor.id, sensor.name, str(sensor.type), sensor.units,
+                                  decimals(sensor.type), pdevice);
+        s_app.log().logf(" - set sensor:%u (%s) in device:%x", sensor.id, sensor.name,
+                         packet.device_id);
+      } else {
+        // TODO: update sensor entry if anything changed.
+        s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", sensor.id, sensor.name,
+                         sensor.units, packet.device_id);
+      }
+    }
+  }
+
+  // Read the float-sensor readings.
   for (unsigned idx_reading = 0; idx_reading < packet.reading_count; idx_reading++) {
     const auto& reading = packet.reading[idx_reading];
     satellite::FloatSensor* psensor = pdevice->float_sensor(reading.sensor_id);
 
     if (!psensor) {
-      if (!reading.has_sensor) {
-        s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id,
-                         packet.device_id);
-        continue;
-      } else {
-        psensor = pdevice->add_float_sensor(reading.sensor_id, reading.sensor.name,
-                                            str(reading.sensor.type), reading.sensor.units,
-                                            decimals(reading.sensor.type), pdevice);
-        s_app.log().logf(" - set sensor:%u (%s) in device:%x", reading.sensor_id,
-                         reading.sensor.name, packet.device_id);
-      }
-    } else if (reading.has_sensor) {
-      s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", reading.sensor_id,
-                       reading.sensor.name, reading.sensor.units, packet.device_id);
+      s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id, packet.device_id);
+      continue;
     }
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %.2f", reading.sensor_id, psensor->cname(), reading.value);
@@ -200,19 +239,8 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     satellite::IntSensor* psensor = pdevice->int_sensor(reading.sensor_id);
 
     if (!psensor) {
-      if (!reading.has_sensor) {
-        s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id,
-                         packet.device_id);
-        continue;
-      } else {
-        psensor = pdevice->add_int_sensor(reading.sensor_id, reading.sensor.name, nullptr,
-                                          reading.sensor.units, pdevice);
-        s_app.log().logf(" - set sensor:%u (%s) in device:%u", reading.sensor_id,
-                         reading.sensor.name, packet.device_id);
-      }
-    } else if (reading.has_sensor) {
-      s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", reading.sensor_id,
-                       reading.sensor.name, reading.sensor.units, packet.device_id);
+      s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id, packet.device_id);
+      continue;
     }
     psensor->value() = reading.value;
     s_app.log().logf(" %u: %s ->  %d", reading.sensor_id, psensor->cname(), reading.value);
@@ -241,11 +269,22 @@ void handleWebRoot(AsyncWebServerRequest* request) {
   }
   html::writeTableInto(&s_html, s_app.wifi_manager().variables());
   html::writeTableInto(&s_html, s_app.mqtt_manager().variables());
+  html::writeTableInto(&s_html, s_lora_vg);
+  s_html += HTML_BUTTON("/lora", "LoRa");
   s_button_wifi_config.add_button(&s_html);
   s_button_mqtt_config.add_button(&s_html);
   s_button_app_status.add_button(&s_html);
   s_button_restart.add_button(&s_html);
   sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+}
+
+void handleLoraConfig(AsyncWebServerRequest* request) {
+  ::og3::read(*request, s_lora_vg);
+  s_html.clear();
+  html::writeFormTableInto(&s_html, s_lora_vg);
+  s_html += HTML_BUTTON("/", "Back");
+  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+  s_app.config().write_config(s_lora_vg);
 }
 
 void process_lora_packets() {
@@ -311,8 +350,16 @@ PeriodicTaskScheduler s_mqtt_scheduler(
 ////////////////////////////////////////////////////////////////////////////////
 
 void setup() {
+  og3::s_oled.addDisplayFn([]() {
+    char text[80];
+    snprintf(text, sizeof(text), "%s\n%.1fC %.1fRH", og3::s_app.board_cname(),
+             og3::s_shtc3.temperature(), og3::s_shtc3.humidity());
+    og3::s_oled.display(text);
+  });
+
   og3::s_app.web_server().on("/", og3::handleWebRoot);
   og3::s_app.web_server().on("/config", [](AsyncWebServerRequest* request) {});
+  og3::s_app.web_server().on("/lora", og3::handleLoraConfig);
   og3::s_app.setup();
 }
 

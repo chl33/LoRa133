@@ -62,7 +62,7 @@ module Lora133_box(top) {
 	}
       }
       // Hole for antenna.
-      translate([outer_dims[0]-wall-1, 12, -1]) cube([wall+2, 10, 14]);
+      translate([outer_dims[0]-wall-1, 18, -1]) cube([wall+2, 8, 14]);
       // Hole for usb
       translate([23, -1, wall + space_below_board + board_thickness-2]) cube([9.5, wall+2, 3.5]);
       

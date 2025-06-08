@@ -113,7 +113,7 @@ Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
       m_rssi("RSSI", 0, "dB", "", 0, m_vg) {
   JsonDocument json;
   {
-    HADiscovery::Entry entry(m_dropped_packets, ha::device_type::kSensor, "None");
+    HADiscovery::Entry entry(m_dropped_packets, ha::device_type::kSensor, nullptr);
     entry.device_name = cname();
     entry.device_id = cdevice_id();
     entry.manufacturer = manufacturer().c_str();
