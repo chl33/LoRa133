@@ -54,7 +54,6 @@ HAApp s_app(HAApp::Options(kManufacturer, kModel,
                                .withOta(OtaManager::Options(OTA_PASSWORD))
                                .withApp(App::Options().withLogType(kLogType))));
 
-VariableGroup s_cvg("lora_cfg");
 VariableGroup s_vg("lora");
 
 static const char kTemperature[] = "temperature";
@@ -96,7 +95,10 @@ auto s_lora_options = []() -> LoRaModule::Options {
   return opts;
 };
 
+// Variables for lora config
 VariableGroup s_lora_vg("lora");
+// This variable group is for enabling/disabling MQTT for a device.
+VariableGroup s_device_cvg("config");
 LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
 
 // Update readings only 1/minute maximum.
@@ -183,7 +185,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     auto iter = s_id_to_device.emplace(
         packet.device_id,
         new satellite::Device(packet.device_id, device.name, device.manufacturer,
-                              &s_app.module_system(), &s_app.ha_discovery(), seq_id));
+                              &s_app.module_system(), &s_app.ha_discovery(), seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
   }
 
@@ -247,7 +249,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     const char nc = psensor->cname()[0] ? psensor->cname()[0] : ' ';
     text.addf(" %c:%d", nc, reading.value);
   }
-  s_app.mqttSend(pdevice->vg());
+  if (!pdevice->is_disabled()) {
+    s_app.mqttSend(pdevice->vg());
+  }
   text.split(22);
   s_oled.display(text.text());
 }
@@ -270,7 +274,9 @@ void handleWebRoot(AsyncWebServerRequest* request) {
   html::writeTableInto(&s_html, s_app.wifi_manager().variables());
   html::writeTableInto(&s_html, s_app.mqtt_manager().variables());
   html::writeTableInto(&s_html, s_lora_vg);
+  html::writeTableInto(&s_html, s_device_cvg);
   s_html += HTML_BUTTON("/lora", "LoRa");
+  s_html += HTML_BUTTON("/device", "Device disable");
   s_button_wifi_config.add_button(&s_html);
   s_button_mqtt_config.add_button(&s_html);
   s_button_app_status.add_button(&s_html);
@@ -281,7 +287,15 @@ void handleWebRoot(AsyncWebServerRequest* request) {
 void handleLoraConfig(AsyncWebServerRequest* request) {
   ::og3::read(*request, s_lora_vg);
   s_html.clear();
-  html::writeFormTableInto(&s_html, s_lora_vg);
+  html::writeFormTableInto(&s_html, s_device_cvg);
+  s_html += HTML_BUTTON("/", "Back");
+  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+}
+
+void handleDeviceConfig(AsyncWebServerRequest* request) {
+  ::og3::read(*request, s_device_cvg);
+  s_html.clear();
+  html::writeFormTableInto(&s_html, s_device_cvg);
   s_html += HTML_BUTTON("/", "Back");
   sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
   s_app.config().write_config(s_lora_vg);
@@ -360,6 +374,7 @@ void setup() {
   og3::s_app.web_server().on("/", og3::handleWebRoot);
   og3::s_app.web_server().on("/config", [](AsyncWebServerRequest* request) {});
   og3::s_app.web_server().on("/lora", og3::handleLoraConfig);
+  og3::s_app.web_server().on("/device", og3::handleDeviceConfig);
   og3::s_app.setup();
 }
 

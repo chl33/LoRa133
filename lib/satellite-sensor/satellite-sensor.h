@@ -56,7 +56,7 @@ class IntSensor : public Sensor {
 class Device {
  public:
   Device(uint32_t device_id_num, const char* name, uint32_t mfg_id, ModuleSystem* module_system,
-         HADiscovery* ha_discovery, uint16_t seq_id);
+         HADiscovery* ha_discovery, uint16_t seq_id, VariableGroup& cvg);
 
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
@@ -64,6 +64,8 @@ class Device {
   const char* cdevice_id() const { return device_id().c_str(); }
   const std::string& manufacturer() const { return m_manufacturer; }
   const unsigned dropped_packets() const { return m_dropped_packets.value(); }
+  bool is_disabled() const { return m_disabled.value(); }
+  void set_disabled(bool disabled) { m_disabled = disabled; }
 
   FloatSensor* float_sensor(unsigned id) {
     auto iter = m_id_to_float_sensor.find(id);
@@ -102,6 +104,8 @@ class Device {
   Variable<int> m_rssi;
   std::map<unsigned, std::unique_ptr<FloatSensor>> m_id_to_float_sensor;
   std::map<unsigned, std::unique_ptr<IntSensor>> m_id_to_int_sensor;
+  std::string m_str_disabled;
+  BoolVariable m_disabled;
 };
 
 }  // namespace og3::satellite

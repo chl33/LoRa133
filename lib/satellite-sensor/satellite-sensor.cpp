@@ -101,7 +101,8 @@ IntSensor::IntSensor(const char* name, const char* device_class, const char* uni
 }
 
 Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
-               ModuleSystem* module_system, HADiscovery* ha_discovery, uint16_t seq_id)
+               ModuleSystem* module_system, HADiscovery* ha_discovery, uint16_t seq_id,
+               VariableGroup& cvg)
     : m_device_id_num(device_id_num),
       m_name(_device_name(name, device_id_num)),
       m_device_id(_device_id(name, device_id_num)),
@@ -110,30 +111,24 @@ Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
       m_discovery(ha_discovery),
       m_vg(m_name.c_str(), m_device_id.c_str()),
       m_dropped_packets("dropped_packets", 0, "count", "dropped packets", 0, m_vg),
-      m_rssi("RSSI", 0, "dB", "", 0, m_vg) {
+      m_rssi("RSSI", 0, "dB", "", 0, m_vg),
+      m_str_disabled(m_name + "_disabled"),
+      m_disabled(m_str_disabled.c_str(), false, nullptr, VariableBase::kSettable, cvg) {
   JsonDocument json;
-  {
-    HADiscovery::Entry entry(m_dropped_packets, ha::device_type::kSensor, nullptr);
+  auto make_ha_entry = [&json, this](const VariableBase& var, const char* device_type,
+                                     const char* device_class) {
+    json.clear();
+    HADiscovery::Entry entry(var, device_type, device_class);
     entry.device_name = cname();
     entry.device_id = cdevice_id();
     entry.manufacturer = manufacturer().c_str();
     char entry_name[80];
-    make_entry_name(entry_name, sizeof(entry_name), cname(), "dropped_packets");
+    make_entry_name(entry_name, sizeof(entry_name), cname(), var.name());
     entry.entry_name = entry_name;
     m_discovery->addEntry(&json, entry);
-  }
-  json.clear();
-  {
-    HADiscovery::Entry entry(m_rssi, ha::device_type::kSensor,
-                             ha::device_class::sensor::kSignalStrength);
-    entry.device_name = cname();
-    entry.device_id = cdevice_id();
-    entry.manufacturer = manufacturer().c_str();
-    char entry_name[80];
-    make_entry_name(entry_name, sizeof(entry_name), cname(), "rssi");
-    entry.entry_name = entry_name;
-    m_discovery->addEntry(&json, entry);
-  }
+  };
+  make_ha_entry(m_dropped_packets, ha::device_type::kSensor, nullptr);
+  make_ha_entry(m_rssi, ha::device_type::kSensor, ha::device_class::sensor::kSignalStrength);
 }
 
 void Device::got_packet(uint16_t seq_id, int rssi) {
