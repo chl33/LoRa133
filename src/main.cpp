@@ -19,14 +19,10 @@
 #include "og3/constants.h"
 #include "satellite-sensor.h"
 
-#define VERSION "0.4.0"
+#define VERSION "0.4.1"
 
 // TODO:
-// - Make a new project og3-satellite
-//   - Move protos.
-//   - Update protos: describe sensor without sensor reading.
-//   - Script to build, including protos.
-// - LoRa moves to og3-satellite, updated og3.
+// - Move library code to og3x-satellite
 
 namespace og3 {
 
@@ -198,26 +194,41 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       // IntSensor
       auto* psensor = pdevice->int_sensor(sensor.id);
       if (!psensor) {
-        pdevice->add_int_sensor(sensor.id, sensor.name, nullptr, sensor.units, pdevice);
-        s_app.log().logf(" - set int sensor:%u (%s) in device:%u", sensor.id, sensor.name,
-                         packet.device_id);
+        pdevice->add_int_sensor(sensor.id, sensor.name, nullptr, sensor.units, pdevice,
+                                sensor.state_class);
+        s_app.log().logf(
+            " - set int sensor:%u (%s%s) in device:%u", sensor.id, sensor.name,
+            (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
+                                                                                 : ""),
+            packet.device_id);
       } else {
         // TODO: update sensor entry if anything changed.
-        s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", sensor.id, sensor.name,
-                         sensor.units, packet.device_id);
+        s_app.log().logf(
+            " - sensor info update :%u (%s %s%s) in device:%x", sensor.id, sensor.name,
+            sensor.units,
+            (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
+                                                                                 : ""),
+            packet.device_id);
       }
     } else {
       // FloatSensor
       satellite::FloatSensor* psensor = pdevice->float_sensor(sensor.id);
       if (!psensor) {
         pdevice->add_float_sensor(sensor.id, sensor.name, str(sensor.type), sensor.units,
-                                  decimals(sensor.type), pdevice);
-        s_app.log().logf(" - set sensor:%u (%s) in device:%x", sensor.id, sensor.name,
-                         packet.device_id);
+                                  decimals(sensor.type), pdevice, sensor.state_class);
+        s_app.log().logf(
+            " - set sensor:%u (%s %s%s) in device:%x", sensor.id, sensor.name, sensor.units,
+            (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
+                                                                                 : ""),
+            packet.device_id);
       } else {
         // TODO: update sensor entry if anything changed.
-        s_app.log().logf(" - sensor info update :%u (%s %s) in device:%x", sensor.id, sensor.name,
-                         sensor.units, packet.device_id);
+        s_app.log().logf(
+            " - sensor info update :%u (%s %s%s) in device:%x", sensor.id, sensor.name,
+            sensor.units,
+            (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
+                                                                                 : ""),
+            packet.device_id);
       }
     }
   }

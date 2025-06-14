@@ -1,6 +1,7 @@
 #pragma once
 
 #include <og3/ha_discovery.h>
+#include <og3/satellite.pb.h>
 #include <og3/variable.h>
 
 #include <map>
@@ -13,7 +14,8 @@ class Device;
 
 class Sensor {
  public:
-  Sensor(const char* name, const char* device_class, const char* units, Device* device);
+  Sensor(const char* name, const char* device_class, const char* units, Device* device,
+         og3_Sensor_StateClass state_class);
 
   const std::string& name() const { return m_name; }
   const char* cname() const { return name().c_str(); }
@@ -21,19 +23,24 @@ class Sensor {
   const char* cdevice_class() const { return device_class().c_str(); }
   const std::string& units() const { return m_units; }
   const char* cunits() const { return units().c_str(); }
+  og3_Sensor_StateClass state_class() const { return m_state_class; }
 
  protected:
+  void addHAEntry(HADiscovery::Entry& entry);
+
   const std::string m_name;
   const std::string m_device_class;
   const std::string m_units;
   const std::string m_description;
+  const og3_Sensor_StateClass m_state_class;
   Device* m_device;
 };
 
 class FloatSensor : public Sensor {
  public:
   FloatSensor(const char* name, const char* device_class, const char* units, unsigned decimals,
-              Device* device);
+              Device* device,
+              og3_Sensor_StateClass state_class = og3_Sensor_StateClass_STATE_CLASS_UNSPECIFIED);
 
   FloatVariable& value() { return m_value; }
   const FloatVariable& value() const { return m_value; }
@@ -44,7 +51,8 @@ class FloatSensor : public Sensor {
 
 class IntSensor : public Sensor {
  public:
-  IntSensor(const char* name, const char* device_class, const char* units, Device* device);
+  IntSensor(const char* name, const char* device_class, const char* units, Device* device,
+            og3_Sensor_StateClass state_class = og3_Sensor_StateClass_STATE_CLASS_UNSPECIFIED);
 
   Variable<int>& value() { return m_value; }
   const Variable<int>& value() const { return m_value; }
@@ -71,19 +79,23 @@ class Device {
     auto iter = m_id_to_float_sensor.find(id);
     return (iter == m_id_to_float_sensor.end()) ? nullptr : iter->second.get();
   }
-  FloatSensor* add_float_sensor(unsigned id, const char* name, const char* device_class,
-                                const char* units, unsigned decimals, Device* device) {
+  FloatSensor* add_float_sensor(
+      unsigned id, const char* name, const char* device_class, const char* units, unsigned decimals,
+      Device* device,
+      og3_Sensor_StateClass state_class = og3_Sensor_StateClass_STATE_CLASS_UNSPECIFIED) {
     auto iter = m_id_to_float_sensor.emplace(
-        id, new FloatSensor(name, device_class, units, decimals, this));
+        id, new FloatSensor(name, device_class, units, decimals, this, state_class));
     return iter.first->second.get();
   }
   IntSensor* int_sensor(unsigned id) {
     auto iter = m_id_to_int_sensor.find(id);
     return (iter == m_id_to_int_sensor.end()) ? nullptr : iter->second.get();
   }
-  IntSensor* add_int_sensor(unsigned id, const char* name, const char* device_class,
-                            const char* units, Device* device) {
-    auto iter = m_id_to_int_sensor.emplace(id, new IntSensor(name, device_class, units, this));
+  IntSensor* add_int_sensor(
+      unsigned id, const char* name, const char* device_class, const char* units, Device* device,
+      og3_Sensor_StateClass state_class = og3_Sensor_StateClass_STATE_CLASS_UNSPECIFIED) {
+    auto iter =
+        m_id_to_int_sensor.emplace(id, new IntSensor(name, device_class, units, this, state_class));
     return iter.first->second.get();
   }
   // Updates m_dropped_packets.

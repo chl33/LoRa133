@@ -56,24 +56,29 @@ std::string _device_id(const char* name, uint32_t device_id) {
 
 }  // namespace
 
-Sensor::Sensor(const char* name, const char* device_class, const char* units, Device* device)
+Sensor::Sensor(const char* name, const char* device_class, const char* units, Device* device,
+               og3_Sensor_StateClass state_class)
     : m_name(legalize(name)),
       m_device_class(device_class ? device_class : ""),
       m_units(units),
       m_description(name),
+      m_state_class(state_class),
       m_device(device) {}
 
-FloatSensor::FloatSensor(const char* name, const char* device_class, const char* units,
-                         unsigned decimals, Device* device)
-    : Sensor(name, device_class, units, device),
-      m_value(m_name.c_str(), 0.0f, m_units.c_str(), "", 0, decimals, device->vg()) {
-  HADiscovery::Entry entry(m_value, ha::device_type::kSensor, device_class);
-  entry.device_name = device->cname();
-  entry.device_id = device->cdevice_id();
-  entry.manufacturer = device->manufacturer().c_str();
+void Sensor::addHAEntry(HADiscovery::Entry& entry) {
+  entry.device_name = m_device->cname();
+  entry.device_id = m_device->cdevice_id();
+  entry.manufacturer = m_device->manufacturer().c_str();
   char entry_name[80];
-  make_entry_name(entry_name, sizeof(entry_name), device->cname(), name);
+  make_entry_name(entry_name, sizeof(entry_name), m_device->cname(), name().c_str());
   entry.entry_name = entry_name;
+  switch (m_state_class) {
+    case og3_Sensor_StateClass_STATE_CLASS_UNSPECIFIED:
+      break;
+    case og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT:
+      entry.state_class = "measurement";
+      break;
+  }
   // entry.software
   // entry.model
   // entry.icon
@@ -82,22 +87,20 @@ FloatSensor::FloatSensor(const char* name, const char* device_class, const char*
   m_device->ha_discovery().addEntry(&json, entry);
 }
 
-IntSensor::IntSensor(const char* name, const char* device_class, const char* units, Device* device)
-    : Sensor(name, device_class, units, device),
+FloatSensor::FloatSensor(const char* name, const char* device_class, const char* units,
+                         unsigned decimals, Device* device, og3_Sensor_StateClass state_class)
+    : Sensor(name, device_class, units, device, state_class),
+      m_value(m_name.c_str(), 0.0f, m_units.c_str(), "", 0, decimals, device->vg()) {
+  HADiscovery::Entry entry(m_value, ha::device_type::kSensor, m_device_class.c_str());
+  addHAEntry(entry);
+}
+
+IntSensor::IntSensor(const char* name, const char* device_class, const char* units, Device* device,
+                     og3_Sensor_StateClass state_class)
+    : Sensor(name, device_class, units, device, state_class),
       m_value(m_name.c_str(), 0, m_units.c_str(), "", 0, device->vg()) {
-  HADiscovery::Entry entry(m_value, ha::device_type::kSensor, device_class);
-  entry.device_name = device->cname();
-  entry.device_id = device->cdevice_id();
-  entry.manufacturer = device->manufacturer().c_str();
-  char entry_name[80];
-  make_entry_name(entry_name, sizeof(entry_name), device->cname(), name);
-  entry.entry_name = entry_name;
-  // entry.software
-  // entry.model
-  // entry.icon
-  JsonDocument json;
-  // TODO(chrishl): should bookkeep and send again if this fails.
-  m_device->ha_discovery().addEntry(&json, entry);
+  HADiscovery::Entry entry(m_value, ha::device_type::kSensor, m_device_class.c_str());
+  addHAEntry(entry);
 }
 
 Device::Device(uint32_t device_id_num, const char* name, uint32_t mfg_id,
