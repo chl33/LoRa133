@@ -1,20 +1,10 @@
 # LoRA133
 
-LoRA packet server.
+This project is a base station for LoRa-based satellite sensor devices such as
+ [Garden133](https://github.com/chl33/Garden133).
+It includes KiCAD board design and firmware.
 
-## TODO
+Please see the [Introducing Garden133](https://selectiveappeal.org/posts/garden133/) blog post
+for more information.
 
-- [ ] Document protocol.
-- [ ] Maybe move satelite library to a library og3x-satellite -sensor(?)
-- [ ] Lifecycle
-    - [ ] On device announcement:
-      - [ ] Remove device not heard from the longest if necessary.
-      - [ ] Write MQTT discovery records
-      - [ ] Write device records to flash a few minutes after a new one is created.
-
-HA Discovery
-
-- HADiscovery module needs to be able to register multiple devices.
-  - addRoot() should only use Entry information, not other info.
-     Otherwise, it cannot register foreign (e.g., Satellite) devices.
-- Don't make a discovery module for each device in the satellite system.
+More details to follow!
