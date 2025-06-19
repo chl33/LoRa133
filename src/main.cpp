@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <SSD1306Wire.h>
+#include <og3/base-station.h>
+#include <og3/constants.h>
 #include <og3/ha_app.h>
 #include <og3/html_table.h>
 #include <og3/lora.h>
@@ -16,10 +18,7 @@
 
 #include <map>
 
-#include "og3/constants.h"
-#include "satellite-sensor.h"
-
-#define VERSION "0.4.1"
+#define VERSION "0.4.2"
 
 // TODO:
 // - Move library code to og3x-satellite
@@ -111,7 +110,7 @@ Variable<unsigned> s_err_version_count("bad version count", 0, "", "", 0, s_vg);
 const char* str(og3_Sensor_Type val) {
   switch (val) {
     case og3_Sensor_Type_TYPE_UNSPECIFIED:
-      return "None";
+      return nullptr;
     case og3_Sensor_Type_TYPE_VOLTAGE:
       return ha::device_class::sensor::kVoltage;
     case og3_Sensor_Type_TYPE_TEMPERATURE:
@@ -140,7 +139,7 @@ unsigned decimals(og3_Sensor_Type val) {
   }
 }
 
-std::map<uint32_t, std::unique_ptr<satellite::Device>> s_id_to_device;
+std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
 
 void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_size) {
   pb_istream_t istream = pb_istream_from_buffer(msg, msg_size);
@@ -156,7 +155,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   text.addf("pkt:%0u dev:%x", seq_id, packet.device_id);
 
   auto dev_iter = s_id_to_device.find(packet.device_id);
-  satellite::Device* pdevice = nullptr;
+  base_station::Device* pdevice = nullptr;
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
     pdevice->got_packet(seq_id, LoRa.packetRssi());
@@ -179,9 +178,9 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       s_app.log().logf(" sw: %u.%u.%u", ver.major, ver.minor, ver.patch);
     }
     auto iter = s_id_to_device.emplace(
-        packet.device_id,
-        new satellite::Device(packet.device_id, device.name, device.manufacturer,
-                              &s_app.module_system(), &s_app.ha_discovery(), seq_id, s_device_cvg));
+        packet.device_id, new base_station::Device(packet.device_id, device.name,
+                                                   device.manufacturer, &s_app.module_system(),
+                                                   &s_app.ha_discovery(), seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
   }
 
@@ -212,7 +211,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       }
     } else {
       // FloatSensor
-      satellite::FloatSensor* psensor = pdevice->float_sensor(sensor.id);
+      base_station::FloatSensor* psensor = pdevice->float_sensor(sensor.id);
       if (!psensor) {
         pdevice->add_float_sensor(sensor.id, sensor.name, str(sensor.type), sensor.units,
                                   decimals(sensor.type), pdevice, sensor.state_class);
@@ -236,7 +235,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   // Read the float-sensor readings.
   for (unsigned idx_reading = 0; idx_reading < packet.reading_count; idx_reading++) {
     const auto& reading = packet.reading[idx_reading];
-    satellite::FloatSensor* psensor = pdevice->float_sensor(reading.sensor_id);
+    base_station::FloatSensor* psensor = pdevice->float_sensor(reading.sensor_id);
 
     if (!psensor) {
       s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id, packet.device_id);
@@ -249,7 +248,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   }
   for (unsigned idx_reading = 0; idx_reading < packet.i_reading_count; idx_reading++) {
     const auto& reading = packet.i_reading[idx_reading];
-    satellite::IntSensor* psensor = pdevice->int_sensor(reading.sensor_id);
+    base_station::IntSensor* psensor = pdevice->int_sensor(reading.sensor_id);
 
     if (!psensor) {
       s_app.log().logf("No sensor id:%u known for device:%u.", reading.sensor_id, packet.device_id);

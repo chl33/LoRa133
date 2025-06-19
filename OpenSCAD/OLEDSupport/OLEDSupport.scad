@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Chris Lee and contibuters.
+// Licensed under the MIT license. See LICENSE file in the project root for details.
+
 // This is a support for a 0.91" OLED screen above a ESP32-WROOM module on a PCB.
 // The support slides onto the end of the screen.
 
