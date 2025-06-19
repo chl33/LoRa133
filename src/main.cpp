@@ -110,7 +110,7 @@ Variable<unsigned> s_err_version_count("bad version count", 0, "", "", 0, s_vg);
 const char* str(og3_Sensor_Type val) {
   switch (val) {
     case og3_Sensor_Type_TYPE_UNSPECIFIED:
-      return "None";
+      return nullptr;
     case og3_Sensor_Type_TYPE_VOLTAGE:
       return ha::device_class::sensor::kVoltage;
     case og3_Sensor_Type_TYPE_TEMPERATURE:
