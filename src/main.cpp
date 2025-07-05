@@ -18,10 +18,9 @@
 
 #include <map>
 
-#define VERSION "0.4.2"
+#include "og3/variable.h"
 
-// TODO:
-// - Move library code to og3x-satellite
+#define VERSION "0.4.3"
 
 namespace og3 {
 
@@ -94,6 +93,10 @@ auto s_lora_options = []() -> LoRaModule::Options {
 VariableGroup s_lora_vg("lora");
 // This variable group is for enabling/disabling MQTT for a device.
 VariableGroup s_device_cvg("config");
+BoolVariable s_device_disable_default("disable_default", false, "disable by default",
+                                      VariableBase::kSettable | VariableBase::kNoPublish,
+                                      s_device_cvg);
+
 LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
 
 // Update readings only 1/minute maximum.
@@ -182,6 +185,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                                                    device.manufacturer, &s_app.module_system(),
                                                    &s_app.ha_discovery(), seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
+    pdevice->set_disabled(s_device_disable_default.value());
   }
 
   s_pkt_count = s_pkt_count.value() + 1;
@@ -297,7 +301,7 @@ void handleWebRoot(AsyncWebServerRequest* request) {
 void handleLoraConfig(AsyncWebServerRequest* request) {
   ::og3::read(*request, s_lora_vg);
   s_html.clear();
-  html::writeFormTableInto(&s_html, s_device_cvg);
+  html::writeFormTableInto(&s_html, s_lora_vg);
   s_html += HTML_BUTTON("/", "Back");
   sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
 }
