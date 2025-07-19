@@ -20,7 +20,7 @@
 
 #include "og3/variable.h"
 
-#define VERSION "0.4.3"
+#define VERSION "0.5.0"
 
 namespace og3 {
 
@@ -181,9 +181,10 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       s_app.log().logf(" sw: %u.%u.%u", ver.major, ver.minor, ver.patch);
     }
     auto iter = s_id_to_device.emplace(
-        packet.device_id, new base_station::Device(packet.device_id, device.name,
-                                                   device.manufacturer, &s_app.module_system(),
-                                                   &s_app.ha_discovery(), seq_id, s_device_cvg));
+        packet.device_id,
+        new base_station::Device(packet.device_id, device.name, device.manufacturer,
+                                 device.device_type, &s_app.module_system(), &s_app.ha_discovery(),
+                                 seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
     pdevice->set_disabled(s_device_disable_default.value());
   }
