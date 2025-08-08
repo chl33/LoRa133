@@ -20,7 +20,7 @@
 
 #include "og3/variable.h"
 
-#define VERSION "0.5.1"
+#define VERSION "0.5.2"
 
 namespace og3 {
 
@@ -190,6 +190,10 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   }
 
   s_pkt_count = s_pkt_count.value() + 1;
+
+  // Set all device sensor readings to "Failed" so we don't re-use values not included in
+  //  this packet.
+  pdevice->setAllSensorReadingsFailed();
 
   // Read the sensor entries.
   for (unsigned idx_sensor = 0; idx_sensor < packet.sensor_count; idx_sensor++) {
