@@ -276,7 +276,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
 }
 
 // Global variable for html, so asyncwebserver can send data in the background (single client)
-String s_html;
+std::string s_html;
 
 WebButton s_button_wifi_config = s_app.createWifiConfigButton();
 WebButton s_button_mqtt_config = s_app.createMqttConfigButton();
