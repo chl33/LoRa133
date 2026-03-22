@@ -1,5 +1,5 @@
 <script>
-  import { Droplet, Activity, ZapOff } from 'lucide-svelte';
+  import { Radio, Activity, ZapOff } from 'lucide-svelte';
 
   export let wifi;
   export let isOnline;
@@ -9,9 +9,9 @@
 
 <nav class="navbar">
   <div class="navbar-content">
-    <div class="brand">
-      <Droplet size={32} />
-      <h1>LoRa133</h1>
+    <div class="logo">
+      <Radio size={32} />
+      <h1>{wifiConfig.board}</h1>
     </div>
 
     <div class="board-name">

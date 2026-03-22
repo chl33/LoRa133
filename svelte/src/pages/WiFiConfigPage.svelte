@@ -78,7 +78,7 @@
       <input
         type="text"
         class="form-input"
-        placeholder="plant-waterer"
+        placeholder="lora-bridge"
         bind:value={wifiConfig.board}
         on:change={() => updateWifi('board', wifiConfig.board)}
       />
