@@ -53,7 +53,7 @@ HAApp s_app(HAApp::Options(kManufacturer, kModel,
                                .withOta(OtaManager::Options(OTA_PASSWORD))
                                .withApp(App::Options().withLogType(kLogType))));
 
-VariableGroup s_vg("lora");
+VariableGroup s_vg("status");
 
 static const char kTemperature[] = "temperature";
 static const char kHumidity[] = "humidity";
@@ -98,7 +98,7 @@ auto s_lora_options = []() -> LoRaModule::Options {
 VariableGroup s_lora_vg("lora");
 // This variable group is for enabling/disabling MQTT for a device.
 VariableGroup s_device_cvg("config");
-BoolVariable s_device_disable_default("disable_default", false, "disable by default",
+BoolVariable s_device_disable_default("disableDefault", false, "disable by default",
                                       VariableBase::kSettable | VariableBase::kNoPublish,
                                       s_device_cvg);
 
@@ -109,11 +109,11 @@ constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
 
 uint8_t s_pkt_buffer[1024];
 
-Variable<unsigned> s_pkt_count("LoRa packet count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_prefix_count("bad prefix count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_crc_count("bad crc count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_size_count("bad size count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_version_count("bad version count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_pkt_count("pktCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_prefix_count("errPrefixCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_crc_count("errCrcCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_size_count("errSizeCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_version_count("errVersionCount", 0, "", "", 0, s_vg);
 
 const char* str(og3_Sensor_Type val) {
   switch (val) {
@@ -368,6 +368,7 @@ NetHandlerStatus apiGetStatus(NetRequest* request, NetResponse* response) {
   JsonDocument jsondoc;
   JsonObject json = jsondoc.to<JsonObject>();
   s_app.app_status().variables().toJson(json, 0);
+  s_vg.toJson(json, 0);
   json["mqttConnected"] = s_app.mqtt_manager().isConnected();
   s_body.clear();
   serializeJson(jsondoc, s_body);

@@ -66,7 +66,7 @@
       const response = await fetch(`${API_BASE}/status`);
       if (!response.ok) throw new Error('Failed to load status');
       const data = await response.json();
-      systemStatus.set(data);
+      systemStatus.update(s => ({ ...s, ...data }));
       isOnline.set(true);
     } catch (err) {
       console.error('Error fetching status:', err);

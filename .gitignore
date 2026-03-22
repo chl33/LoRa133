@@ -19,3 +19,4 @@ secrets*.yaml
 /src/svelteesp32async.h
 /svelte/dist/
 /svelte/node_modules/
+/local.ini

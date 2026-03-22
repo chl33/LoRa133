@@ -162,7 +162,7 @@
               <div class="sensor-info">
                 <span class="sensor-name">{sensor.name}</span>
                 <span class="sensor-value">
-                  {sensor.value !== null ? sensor.value.toFixed(sensor.type === 'float' ? 2 : 0) : '--'}
+                  {sensor.value !== null && sensor.value !== undefined ? sensor.value.toFixed(sensor.type === 'float' ? 2 : 0) : '--'}
                   <small>{sensor.units}</small>
                 </span>
               </div>

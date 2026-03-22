@@ -29,14 +29,14 @@
       <span class="stat-icon-inline temp-color">
         <Thermometer size={18} />
       </span>
-      <span class="stat-text">{status.temperature.toFixed(1)}°C</span>
+      <span class="stat-text">{(status.temperature || 0).toFixed(1)}°C</span>
     </div>
 
     <div class="stat-compact">
       <span class="stat-icon-inline humidity-color">
         <Wind size={18} />
       </span>
-      <span class="stat-text">{status.humidity.toFixed(1)}%</span>
+      <span class="stat-text">{(status.humidity || 0).toFixed(1)}%</span>
     </div>
 
     <div class="stat-compact">
