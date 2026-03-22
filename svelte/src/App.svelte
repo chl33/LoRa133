@@ -143,7 +143,7 @@
 </script>
 
 <div class="app-container">
-  <Sidebar {currentPage} on:changePage={handlePageChange} />
+  <Sidebar {currentPage} {devices} {systemStatus} on:changePage={handlePageChange} />
   
   <main class="main-content">
     <Navbar {wifi} {isOnline} />

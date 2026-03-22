@@ -12,8 +12,8 @@
     dispatch('changePage', page);
   }
 
-  $: devicesList = $devices;
-  $: status = $systemStatus;
+  $: devicesList = $devices || [];
+  $: status = $systemStatus || { mqttConnected: false, software: '', hardware: '' };
 
   async function restartDevice() {
     if (!confirm('Are you sure you want to restart the device?')) return;
