@@ -3,7 +3,10 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <SPI.h>
 #include <SSD1306Wire.h>
+#include <WiFi.h>
+#include <Wire.h>
 #include <og3/base-station.h>
 #include <og3/constants.h>
 #include <og3/ha_app.h>
@@ -14,6 +17,7 @@
 #include <og3/satellite.pb.h>
 #include <og3/shtc3.h>
 #include <og3/text_buffer.h>
+#include <og3/web_server.h>
 #include <pb_decode.h>
 
 #include <map>
@@ -161,7 +165,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   base_station::Device* pdevice = nullptr;
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
-    pdevice->got_packet(seq_id, LoRa.packetRssi());
+    pdevice->got_packet(seq_id, og3::s_lora.last_rssi());
     s_app.log().logf("Known device id:%u %s'%s' (seq_id=%u, dropped=%u).", packet.device_id,
                      packet.has_device ? "(dev info sent) " : "", pdevice->cname(), seq_id,
                      pdevice->dropped_packets());
@@ -276,14 +280,14 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
 }
 
 // Global variable for html, so asyncwebserver can send data in the background (single client)
-std::string s_html;
+String s_html;
 
 WebButton s_button_wifi_config = s_app.createWifiConfigButton();
 WebButton s_button_mqtt_config = s_app.createMqttConfigButton();
 WebButton s_button_app_status = s_app.createAppStatusButton();
 WebButton s_button_restart = s_app.createRestartButton();
 
-void handleWebRoot(AsyncWebServerRequest* request) {
+NetHandlerStatus handleWebRoot(NetRequest* request, NetResponse* response) {
   s_html.clear();
   html::writeTableInto(&s_html, s_vg);
   for (auto& iter : s_id_to_device) {
@@ -300,39 +304,37 @@ void handleWebRoot(AsyncWebServerRequest* request) {
   s_button_mqtt_config.add_button(&s_html);
   s_button_app_status.add_button(&s_html);
   s_button_restart.add_button(&s_html);
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
+  NET_REPLY(request, ESP_OK);
 }
 
-void handleLoraConfig(AsyncWebServerRequest* request) {
-  ::og3::read(*request, s_lora_vg);
+NetHandlerStatus handleLoraConfig(NetRequest* request, NetResponse* response) {
+  read(*request, s_lora_vg);
   s_html.clear();
   html::writeFormTableInto(&s_html, s_lora_vg);
   s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
+  NET_REPLY(request, ESP_OK);
 }
 
-void handleDeviceConfig(AsyncWebServerRequest* request) {
-  ::og3::read(*request, s_device_cvg);
+NetHandlerStatus handleDeviceConfig(NetRequest* request, NetResponse* response) {
+  read(*request, s_device_cvg);
   s_html.clear();
   html::writeFormTableInto(&s_html, s_device_cvg);
   s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
   s_app.config().write_config(s_lora_vg);
+  NET_REPLY(request, ESP_OK);
 }
 
-void process_lora_packets() {
-  const int buffer_bytes = sizeof(s_pkt_buffer);
-  const int nbytes_available = LoRa.available();
-  const int nbytes = std::min(nbytes_available, buffer_bytes);
-  LoRa.readBytes(s_pkt_buffer, nbytes);
-
-  pkt::PacketReader reader(s_pkt_buffer, sizeof(s_pkt_buffer));
+void process_lora_packets(const uint8_t* buffer, size_t nbytes) {
+  pkt::PacketReader reader(buffer, nbytes);
   switch (reader.parse()) {
     case pkt::PacketReader::ParseResult::kOk:
       break;
     case pkt::PacketReader::ParseResult::kBadPrefix:
-      s_app.log().logf("Pailed to parse packet: bad prefix. %02x %02x %02x %02x.", s_pkt_buffer[0],
-                       s_pkt_buffer[1], s_pkt_buffer[2], s_pkt_buffer[3]);
+      s_app.log().logf("Failed to parse packet: bad prefix. %02x %02x %02x %02x.", buffer[0],
+                       buffer[1], buffer[2], buffer[3]);
       s_err_prefix_count = s_err_prefix_count.value() + 1;
       return;
     case pkt::PacketReader::ParseResult::kBadCrc:
@@ -390,10 +392,9 @@ void setup() {
     og3::s_oled.display(text);
   });
 
-  og3::s_app.web_server().on("/", og3::handleWebRoot);
-  og3::s_app.web_server().on("/config", [](AsyncWebServerRequest* request) {});
-  og3::s_app.web_server().on("/lora", og3::handleLoraConfig);
-  og3::s_app.web_server().on("/device", og3::handleDeviceConfig);
+  og3::s_app.web_server_module().on("/", og3::handleWebRoot);
+  og3::s_app.web_server_module().on("/lora", og3::handleLoraConfig);
+  og3::s_app.web_server_module().on("/device", og3::handleDeviceConfig);
   og3::s_app.setup();
 }
 
@@ -405,16 +406,11 @@ void loop() {
   }
 
   // Try to parse a packet.
-  const int packetSize = LoRa.parsePacket();
-  if (!packetSize) {
-    return;
-  }
-
-  // Received a packet.
-  og3::s_app.log().logf("Got packet: %d bytes.", packetSize);
-
-  // read packet
-  while (LoRa.available()) {
-    og3::process_lora_packets();
+  int packetSize = og3::s_lora.poll_packet(og3::s_pkt_buffer, sizeof(og3::s_pkt_buffer));
+  if (packetSize > 0) {
+    // Received a packet.
+    og3::s_app.log().logf("Got packet: %d bytes (RSSI: %.1f, SNR: %.1f).", packetSize,
+                          og3::s_lora.last_rssi(), og3::s_lora.last_snr());
+    og3::process_lora_packets(og3::s_pkt_buffer, packetSize);
   }
 }
