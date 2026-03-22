@@ -23,6 +23,7 @@
 #include <map>
 
 #include "og3/variable.h"
+#include "svelteesp32async.h"
 
 #define VERSION "0.5.2"
 
@@ -287,43 +288,200 @@ WebButton s_button_mqtt_config = s_app.createMqttConfigButton();
 WebButton s_button_app_status = s_app.createAppStatusButton();
 WebButton s_button_restart = s_app.createRestartButton();
 
-NetHandlerStatus handleWebRoot(NetRequest* request, NetResponse* response) {
-  s_html.clear();
-  html::writeTableInto(&s_html, s_vg);
+static String s_body;
+
+NetHandlerStatus apiGetWifi(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  const auto& wifi = s_app.wifi_manager();
+  json["board"] = wifi.board();
+  json["wifiPassword"] = wifi.wifiPassword();
+  json["essId"] = wifi.essId();
+  json["ipAddr"] = wifi.ipAddr();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putWifiConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_app.wifi_manager().variables().updateFromJson(obj);
+  s_app.config().write_config(s_app.wifi_manager().variables());
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetMqtt(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  const auto& mqtt = s_app.mqtt_manager();
+  json["enabled"] = mqtt.isEnabled();
+  json["hostAddr"] = mqtt.hostAddr();
+  json["authPassword"] = mqtt.authPassword();
+  json["authUser"] = mqtt.authUser();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putMqttConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_app.mqtt_manager().variables().updateFromJson(obj);
+  s_app.config().write_config(s_app.mqtt_manager().variables());
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetLora(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  s_lora_vg.toJson(json, 0);
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putLoraConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_lora_vg.updateFromJson(obj);
+  s_app.config().write_config(s_lora_vg);
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetStatus(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  s_app.app_status().variables().toJson(json, 0);
+  json["mqttConnected"] = s_app.mqtt_manager().isConnected();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetDevices(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonArray arr = jsondoc.to<JsonArray>();
   for (auto& iter : s_id_to_device) {
     const auto& device = iter.second;
-    html::writeTableInto(&s_html, device->vg());
+    JsonObject obj = arr.add<JsonObject>();
+    obj["id"] = iter.first;
+    obj["name"] = device->cname();
+    obj["type"] = device->cdevice_type();
+    obj["disabled"] = device->is_disabled();
+    obj["droppedPackets"] = device->dropped_packets();
   }
-  html::writeTableInto(&s_html, s_app.wifi_manager().variables());
-  html::writeTableInto(&s_html, s_app.mqtt_manager().variables());
-  html::writeTableInto(&s_html, s_lora_vg);
-  html::writeTableInto(&s_html, s_device_cvg);
-  s_html += HTML_BUTTON("/lora", "LoRa");
-  s_html += HTML_BUTTON("/device", "Device disable");
-  s_button_wifi_config.add_button(&s_html);
-  s_button_mqtt_config.add_button(&s_html);
-  s_button_app_status.add_button(&s_html);
-  s_button_restart.add_button(&s_html);
-  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
   NET_REPLY(request, ESP_OK);
 }
 
-NetHandlerStatus handleLoraConfig(NetRequest* request, NetResponse* response) {
-  read(*request, s_lora_vg);
-  s_html.clear();
-  html::writeFormTableInto(&s_html, s_lora_vg);
-  s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
+NetHandlerStatus apiPostDeviceForget(NetRequest* request, NetResponse* response) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  s_id_to_device.erase(iter);
+  response->send(200, "application/json", "{\"isOk\":true}");
   NET_REPLY(request, ESP_OK);
 }
 
-NetHandlerStatus handleDeviceConfig(NetRequest* request, NetResponse* response) {
-  read(*request, s_device_cvg);
-  s_html.clear();
-  html::writeFormTableInto(&s_html, s_device_cvg);
-  s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, response, s_app.board_cname(), kSoftware, s_html.c_str());
-  s_app.config().write_config(s_lora_vg);
+NetHandlerStatus apiGetDevice(NetRequest* request, NetResponse* response) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  const auto& device = iter->second;
+  JsonDocument jsondoc;
+  JsonObject obj = jsondoc.to<JsonObject>();
+  obj["id"] = id;
+  obj["name"] = device->cname();
+  obj["type"] = device->cdevice_type();
+  obj["disabled"] = device->is_disabled();
+  obj["droppedPackets"] = device->dropped_packets();
+
+  JsonArray sensors = obj["sensors"].to<JsonArray>();
+  for (const auto& siter : device->id_to_float_sensor()) {
+    const auto& sensor = siter.second;
+    JsonObject sobj = sensors.add<JsonObject>();
+    sobj["id"] = siter.first;
+    sobj["name"] = sensor->cname();
+    sobj["units"] = sensor->cunits();
+    sobj["type"] = "float";
+    if (sensor->value().failed()) {
+      sobj["value"] = nullptr;
+    } else {
+      sobj["value"] = sensor->value().value();
+    }
+  }
+  for (const auto& siter : device->id_to_int_sensor()) {
+    const auto& sensor = siter.second;
+    JsonObject sobj = sensors.add<JsonObject>();
+    sobj["id"] = siter.first;
+    sobj["name"] = sensor->cname();
+    sobj["units"] = sensor->cunits();
+    sobj["type"] = "int";
+    if (sensor->value().failed()) {
+      sobj["value"] = nullptr;
+    } else {
+      sobj["value"] = sensor->value().value();
+    }
+  }
+
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiPutDeviceConfig(NetRequest* request, NetResponse* response,
+                                    JsonVariant& jsonIn) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  iter->second->vg().updateFromJson(obj);
+  response->send(200, "application/json", "{\"isOk\":true}");
   NET_REPLY(request, ESP_OK);
 }
 
@@ -392,9 +550,20 @@ void setup() {
     og3::s_oled.display(text);
   });
 
-  og3::s_app.web_server_module().on("/", og3::handleWebRoot);
-  og3::s_app.web_server_module().on("/lora", og3::handleLoraConfig);
-  og3::s_app.web_server_module().on("/device", og3::handleDeviceConfig);
+  initSvelteStaticFiles(&og3::s_app.web_server_module().native_server());
+  og3::s_app.web_server_module().on("/api/wifi", HTTP_GET, og3::apiGetWifi);
+  og3::s_app.web_server_module().on("/api/mqtt", HTTP_GET, og3::apiGetMqtt);
+  og3::s_app.web_server_module().on("/api/lora", HTTP_GET, og3::apiGetLora);
+  og3::s_app.web_server_module().on("/api/status", HTTP_GET, og3::apiGetStatus);
+  og3::s_app.web_server_module().on("/api/devices", HTTP_GET, og3::apiGetDevices);
+  og3::s_app.web_server_module().on("/api/device", HTTP_GET, og3::apiGetDevice);
+
+  og3::s_app.web_server_module().onJson("/api/wifi", HTTP_PUT, og3::putWifiConfig);
+  og3::s_app.web_server_module().onJson("/api/mqtt", HTTP_PUT, og3::putMqttConfig);
+  og3::s_app.web_server_module().onJson("/api/lora", HTTP_PUT, og3::putLoraConfig);
+  og3::s_app.web_server_module().onJson("/api/device/config", HTTP_PUT, og3::apiPutDeviceConfig);
+  og3::s_app.web_server_module().on("/api/device/forget", HTTP_POST, og3::apiPostDeviceForget);
+
   og3::s_app.setup();
 }
 
