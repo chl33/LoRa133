@@ -313,23 +313,23 @@
 
   .sensors-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.75rem;
   }
 
   .sensor-tile {
     background: #f9fafb;
     border: 1px solid #f3f4f6;
     border-radius: 0.5rem;
-    padding: 1rem;
+    padding: 0.75rem;
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .sensor-icon {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     background: white;
     border-radius: 0.375rem;
     display: flex;
@@ -337,30 +337,39 @@
     justify-content: center;
     color: #3b82f6;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    flex-shrink: 0;
   }
 
   .sensor-info {
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .sensor-name {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: #6b7280;
     text-transform: uppercase;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .sensor-value {
-    font-size: 1.25rem;
+    font-size: 1.125rem;
     font-weight: 700;
     color: #111827;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .sensor-value small {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: #6b7280;
+    margin-left: 0.125rem;
   }
 
   .no-sensors {

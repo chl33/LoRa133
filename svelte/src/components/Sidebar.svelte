@@ -122,23 +122,23 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.25rem;
     border: none;
     background: transparent;
     color: white;
     border-radius: 0.5rem;
     cursor: pointer;
     transition: background 0.2s;
-    font-size: 1rem;
+    font-size: 0.9375rem;
     text-align: left;
   }
 
   @media (max-width: 768px) {
     .nav-button {
-      padding: 0.5rem;
+      padding: 0.4rem 0.5rem;
       font-size: 0.875rem;
-      margin-bottom: 0.25rem;
+      margin-bottom: 0.125rem;
     }
   }
 
@@ -173,8 +173,8 @@
   }
 
   .status-text {
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.3rem;
     border-radius: 0.25rem;
     background: #991b1b;
     color: white;
@@ -188,11 +188,11 @@
   :global(.text-red) { color: #ef4444; }
 
   .nav-section {
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
+    margin-top: 1rem;
+    margin-bottom: 0.25rem;
     padding: 0.5rem 0.75rem;
     text-transform: uppercase;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: #9ca3af;
     font-weight: 600;
   }
