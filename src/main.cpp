@@ -102,7 +102,22 @@ BoolVariable s_device_disable_default("disableDefault", false, "disable by defau
                                       VariableBase::kSettable | VariableBase::kNoPublish,
                                       s_device_cvg);
 
+std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
+
 LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
+
+// Periodically check if satellite devices have timed out.
+PeriodicTaskScheduler s_availability_checker(
+    30 * kMsecInSec, 30 * kMsecInSec,
+    []() {
+      for (auto& iter : s_id_to_device) {
+        const auto& device = iter.second;
+        if (device->isTimedOut()) {
+          device->setIsOnline(false);
+        }
+      }
+    },
+    &s_app.tasks());
 
 // Update readings only 1/minute maximum.
 constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
@@ -146,8 +161,6 @@ unsigned decimals(og3_Sensor_Type val) {
       return 0;
   }
 }
-
-std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
 
 void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_size) {
   pb_istream_t istream = pb_istream_from_buffer(msg, msg_size);
@@ -194,7 +207,14 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     pdevice->set_disabled(s_device_disable_default.value());
   }
 
+  if (packet.has_device && packet.device.timeout_secs > 0) {
+    pdevice->set_comms_timeout_millis(packet.device.timeout_secs * 1000);
+  }
+
   s_pkt_count = s_pkt_count.value() + 1;
+
+  // Update MQTT availability message if it applies.
+  pdevice->setIsOnline(true);
 
   // Set all device sensor readings to "Failed" so we don't re-use values not included in
   //  this packet.
@@ -564,6 +584,12 @@ void setup() {
   og3::s_app.web_server_module().onJson("/api/lora", HTTP_PUT, og3::putLoraConfig);
   og3::s_app.web_server_module().onJson("/api/device/config", HTTP_PUT, og3::apiPutDeviceConfig);
   og3::s_app.web_server_module().on("/api/device/forget", HTTP_POST, og3::apiPostDeviceForget);
+  og3::s_app.web_server_module().on("/api/restart", HTTP_POST,
+                                    [](og3::NetRequest* request, og3::NetResponse* response) {
+                                      response->send(200, "text/plain", "restarting");
+                                      og3::s_app.tasks().runIn(1000, []() { ESP.restart(); });
+                                      NET_REPLY(request, ESP_OK);
+                                    });
 
   og3::s_app.setup();
 }
