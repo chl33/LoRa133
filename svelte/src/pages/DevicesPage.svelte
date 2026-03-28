@@ -34,6 +34,7 @@
               <th>Device Name</th>
               <th>Type</th>
               <th>Status</th>
+              <th>SW Version</th>
               <th>Dropped</th>
               <th class="text-right">Action</th>
             </tr>
@@ -63,6 +64,7 @@
                     {/if}
                   </div>
                 </td>
+                <td>{device.swVersion}</td>
                 <td>
                   <div class="dropped-cell" class:has-errors={device.droppedPackets > 0}>
                     {#if device.droppedPackets > 0}

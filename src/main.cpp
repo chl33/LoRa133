@@ -114,15 +114,27 @@ TaskScheduler s_save_devices_task([]() { save_devices(); }, &s_app.tasks());
 
 void request_save_devices() { s_save_devices_task.runIn(90 * og3::kMsecInSec); }
 
+String version_string(const og3_Version& v) {
+  if (v.major == 0 && v.minor == 0 && v.patch == 0) {
+    return "Unknown";
+  }
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%u.%u.%u", v.major, v.minor, v.patch);
+  return String(buf);
+}
+
 void load_devices() {
   base_station::Device::loadAll(
       kDevicesFile, &s_app.config(),
-      [](uint32_t id, const char* name, uint32_t mfg_id, const char* type, uint32_t timeout_ms) {
+      [](uint32_t id, const char* name, uint32_t mfg_id, const char* type, uint32_t timeout_ms,
+         const og3_Version& hw_version, const og3_Version& sw_version) {
         auto iter = s_id_to_device.emplace(
             id, new base_station::Device(id, name, mfg_id, type, &s_app.module_system(),
                                          &s_app.ha_discovery(), 0, s_device_cvg));
         if (iter.second) {
           iter.first->second->set_comms_timeout_millis(timeout_ms);
+          iter.first->second->set_hardware_version(hw_version);
+          iter.first->second->set_software_version(sw_version);
           iter.first->second->setIsOnline(false);
         }
         return iter.first->second.get();
@@ -208,11 +220,6 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     s_app.log().logf("Known device id:%u %s'%s' (%s) (seq_id=%u, dropped=%u).", packet.device_id,
                      packet.has_device ? "(dev info sent) " : "", pdevice->cname(),
                      packet.device.device_type, seq_id, pdevice->dropped_packets());
-    if (packet.has_device && pdevice->device_type().empty() &&
-        strlen(packet.device.device_type) > 0) {
-      pdevice->set_device_type(packet.device.device_type);
-      save_devices();
-    }
   } else {
     if (!packet.has_device) {
       s_app.log().logf("No known device with id=%u (seq_id=%u).", packet.device_id, seq_id);
@@ -258,6 +265,22 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       const uint32_t new_timeout_ms = packet.device.timeout_secs * 1000;
       if (new_timeout_ms != pdevice->comms_timeout_millis()) {
         pdevice->set_comms_timeout_millis(new_timeout_ms);
+        changed = true;
+      }
+    }
+    if (packet.device.has_hardware_version) {
+      const auto& v = packet.device.hardware_version;
+      const auto& cur = pdevice->hardware_version();
+      if (v.major != cur.major || v.minor != cur.minor || v.patch != cur.patch) {
+        pdevice->set_hardware_version(v);
+        changed = true;
+      }
+    }
+    if (packet.device.has_software_version) {
+      const auto& v = packet.device.software_version;
+      const auto& cur = pdevice->software_version();
+      if (v.major != cur.major || v.minor != cur.minor || v.patch != cur.patch) {
+        pdevice->set_software_version(v);
         changed = true;
       }
     }
@@ -467,6 +490,7 @@ NetHandlerStatus apiGetDevices(NetRequest* request, NetResponse* response) {
     obj["lastSeenSecs"] =
         device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
     obj["droppedPackets"] = device->dropped_packets();
+    obj["swVersion"] = version_string(device->software_version());
   }
   s_body.clear();
   serializeJson(jsondoc, s_body);
@@ -515,6 +539,8 @@ NetHandlerStatus apiGetDevice(NetRequest* request, NetResponse* response) {
   obj["lastSeenSecs"] =
       device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
   obj["droppedPackets"] = device->dropped_packets();
+  obj["hwVersion"] = version_string(device->hardware_version());
+  obj["swVersion"] = version_string(device->software_version());
 
   JsonArray sensors = obj["sensors"].to<JsonArray>();
   for (const auto& siter : device->id_to_float_sensor()) {
@@ -657,8 +683,8 @@ void setup() {
                                       NET_REPLY(request, ESP_OK);
                                     });
 
-  og3::load_devices();
   og3::s_app.setup();
+  og3::load_devices();
 }
 
 void loop() {

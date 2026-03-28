@@ -125,6 +125,14 @@
             <span class="value">{device.type}</span>
           </div>
           <div class="info-row">
+            <span class="label">Hardware</span>
+            <span class="value">{device.hwVersion}</span>
+          </div>
+          <div class="info-row">
+            <span class="label">Software</span>
+            <span class="value">{device.swVersion}</span>
+          </div>
+          <div class="info-row">
             <span class="label">Connection</span>
             <span class="value" class:active={device.isOnline} class:warn={!device.isOnline}>
               {device.isOnline ? 'Online' : 'Offline'}
