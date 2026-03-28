@@ -104,6 +104,31 @@ BoolVariable s_device_disable_default("disableDefault", false, "disable by defau
 
 std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
 
+static const char kDevicesFile[] = "/devices.json";
+
+void save_devices() {
+  base_station::Device::saveAll(kDevicesFile, &s_app.config(), s_id_to_device);
+}
+
+TaskScheduler s_save_devices_task([]() { save_devices(); }, &s_app.tasks());
+
+void request_save_devices() { s_save_devices_task.runIn(90 * og3::kMsecInSec); }
+
+void load_devices() {
+  base_station::Device::loadAll(
+      kDevicesFile, &s_app.config(),
+      [](uint32_t id, const char* name, uint32_t mfg_id, const char* type, uint32_t timeout_ms) {
+        auto iter = s_id_to_device.emplace(
+            id, new base_station::Device(id, name, mfg_id, type, &s_app.module_system(),
+                                         &s_app.ha_discovery(), 0, s_device_cvg));
+        if (iter.second) {
+          iter.first->second->set_comms_timeout_millis(timeout_ms);
+          iter.first->second->setIsOnline(false);
+        }
+        return iter.first->second.get();
+      });
+}
+
 LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
 
 // Periodically check if satellite devices have timed out.
@@ -186,6 +211,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
     if (packet.has_device && pdevice->device_type().empty() &&
         strlen(packet.device.device_type) > 0) {
       pdevice->set_device_type(packet.device.device_type);
+      save_devices();
     }
   } else {
     if (!packet.has_device) {
@@ -210,10 +236,34 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                                  seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
     pdevice->set_disabled(s_device_disable_default.value());
+    request_save_devices();
   }
 
-  if (packet.has_device && packet.device.timeout_secs > 0) {
-    pdevice->set_comms_timeout_millis(packet.device.timeout_secs * 1000);
+  if (packet.has_device) {
+    bool changed = false;
+    if (strlen(packet.device.name) > 0 && pdevice->name() != packet.device.name) {
+      pdevice->set_name(packet.device.name);
+      changed = true;
+    }
+    if (packet.device.manufacturer > 0 && pdevice->mfg_id() != packet.device.manufacturer) {
+      pdevice->set_mfg_id(packet.device.manufacturer);
+      changed = true;
+    }
+    if (strlen(packet.device.device_type) > 0 &&
+        pdevice->device_type() != packet.device.device_type) {
+      pdevice->set_device_type(packet.device.device_type);
+      changed = true;
+    }
+    if (packet.device.timeout_secs > 0) {
+      const uint32_t new_timeout_ms = packet.device.timeout_secs * 1000;
+      if (new_timeout_ms != pdevice->comms_timeout_millis()) {
+        pdevice->set_comms_timeout_millis(new_timeout_ms);
+        changed = true;
+      }
+    }
+    if (changed) {
+      request_save_devices();
+    }
   }
 
   s_pkt_count = s_pkt_count.value() + 1;
@@ -436,6 +486,7 @@ NetHandlerStatus apiPostDeviceForget(NetRequest* request, NetResponse* response)
     NET_REPLY(request, ESP_FAIL);
   }
   s_id_to_device.erase(iter);
+  request_save_devices();
   response->send(200, "application/json", "{\"isOk\":true}");
   NET_REPLY(request, ESP_OK);
 }
@@ -606,6 +657,7 @@ void setup() {
                                       NET_REPLY(request, ESP_OK);
                                     });
 
+  og3::load_devices();
   og3::s_app.setup();
 }
 
