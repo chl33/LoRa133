@@ -54,9 +54,14 @@
                 </td>
                 <td>{device.type}</td>
                 <td>
-                  <span class="status-badge" class:active={!device.disabled}>
-                    {!device.disabled ? 'Active' : 'MQTT Disabled'}
-                  </span>
+                  <div class="status-stack">
+                    <span class="status-badge" class:active={device.isOnline}>
+                      {device.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                    {#if device.disabled}
+                      <span class="status-hint">MQTT Disabled</span>
+                    {/if}
+                  </div>
                 </td>
                 <td>
                   <div class="dropped-cell" class:has-errors={device.droppedPackets > 0}>
@@ -192,6 +197,19 @@
   .status-badge.active {
     background: #d1fae5;
     color: #065f46;
+  }
+
+  .status-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .status-hint {
+    font-size: 0.65rem;
+    color: #991b1b;
+    font-weight: 600;
+    text-transform: uppercase;
   }
 
   .dropped-cell {

@@ -191,6 +191,12 @@
     min-height: 100vh;
   }
 
+  @media (max-width: 768px) {
+    .app-container {
+      flex-direction: column;
+    }
+  }
+
   .main-content {
     flex: 1;
     display: flex;

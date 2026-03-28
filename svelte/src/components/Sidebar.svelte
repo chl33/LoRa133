@@ -52,7 +52,12 @@
       class:active={currentPage === `device-${device.id}`}
       on:click={() => navigate(`device-${device.id}`)}>
       <span class="flex-1 truncate">{device.name}</span>
-      <div class="mini-status" class:enabled={!device.disabled}></div>
+      <div 
+        class="mini-status" 
+        class:online={device.isOnline} 
+        class:mqtt-off={device.disabled}
+        title={device.isOnline ? 'Online' : 'Offline'}>
+      </div>
     </button>
   {/each}
 
@@ -164,12 +169,18 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #ef4444;
+    background: #ef4444; /* Default Offline */
   }
 
-  .mini-status.enabled {
+  .mini-status.online {
     background: #10b981;
     box-shadow: 0 0 4px #10b981;
+  }
+
+  .mini-status.mqtt-off {
+    border: 2px solid white;
+    width: 6px;
+    height: 6px;
   }
 
   .status-text {

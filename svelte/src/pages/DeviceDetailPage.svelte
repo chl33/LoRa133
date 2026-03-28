@@ -112,6 +112,12 @@
         
         <div class="info-rows">
           <div class="info-row">
+            <span class="label">Connection</span>
+            <span class="value" class:active={device.isOnline} class:warn={!device.isOnline}>
+              {device.isOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
+          <div class="info-row">
             <span class="label">Type</span>
             <span class="value">{device.type}</span>
           </div>
