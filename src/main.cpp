@@ -180,16 +180,21 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
     pdevice->got_packet(seq_id, og3::s_lora.last_rssi());
-    s_app.log().logf("Known device id:%u %s'%s' (seq_id=%u, dropped=%u).", packet.device_id,
-                     packet.has_device ? "(dev info sent) " : "", pdevice->cname(), seq_id,
-                     pdevice->dropped_packets());
+    s_app.log().logf("Known device id:%u %s'%s' (%s) (seq_id=%u, dropped=%u).", packet.device_id,
+                     packet.has_device ? "(dev info sent) " : "", pdevice->cname(),
+                     packet.device.device_type, seq_id, pdevice->dropped_packets());
+    if (packet.has_device && pdevice->device_type().empty() &&
+        strlen(packet.device.device_type) > 0) {
+      pdevice->set_device_type(packet.device.device_type);
+    }
   } else {
     if (!packet.has_device) {
       s_app.log().logf("No known device with id=%u (seq_id=%u).", packet.device_id, seq_id);
       return;
     }
     const auto& device = packet.device;
-    s_app.log().logf("Device: id:0x%X mfg:0x%X '%s'", device.id, device.manufacturer, device.name);
+    s_app.log().logf("Device: id:0x%X mfg:0x%X '%s' (%s)", device.id, device.manufacturer,
+                     device.name, device.device_type);
     if (device.has_hardware_version) {
       const auto& ver = device.hardware_version;
       s_app.log().logf(" hw: %u.%u.%u", ver.major, ver.minor, ver.patch);
