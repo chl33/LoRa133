@@ -76,6 +76,15 @@
   function goBack() {
     dispatch('changePage', 'devices');
   }
+
+  function formatDuration(secs) {
+    if (secs < 0) return 'Never';
+    if (secs < 60) return `${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ago`;
+  }
 </script>
 
 <div class="page">
@@ -126,6 +135,18 @@
             <span class="value" class:active={!device.disabled}>
               {!device.disabled ? 'Enabled' : 'Disabled'}
             </span>
+          </div>
+          <div class="info-row">
+            <span class="label">Last Seen</span>
+            <span class="value">{formatDuration(device.lastSeenSecs)}</span>
+          </div>
+          <div class="info-row">
+            <span class="label">Packets</span>
+            <span class="value">{device.packetCount}</span>
+          </div>
+          <div class="info-row">
+            <span class="label">RSSI</span>
+            <span class="value">{device.rssi} dBm</span>
           </div>
           <div class="info-row">
             <span class="label">Dropped Packets</span>

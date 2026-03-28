@@ -412,6 +412,10 @@ NetHandlerStatus apiGetDevices(NetRequest* request, NetResponse* response) {
     obj["type"] = device->cdevice_type();
     obj["disabled"] = device->is_disabled();
     obj["isOnline"] = device->is_online();
+    obj["packetCount"] = device->packet_count();
+    obj["rssi"] = device->rssi();
+    obj["lastSeenSecs"] =
+        device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
     obj["droppedPackets"] = device->dropped_packets();
   }
   s_body.clear();
@@ -455,6 +459,10 @@ NetHandlerStatus apiGetDevice(NetRequest* request, NetResponse* response) {
   obj["type"] = device->cdevice_type();
   obj["disabled"] = device->is_disabled();
   obj["isOnline"] = device->is_online();
+  obj["packetCount"] = device->packet_count();
+  obj["rssi"] = device->rssi();
+  obj["lastSeenSecs"] =
+      device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
   obj["droppedPackets"] = device->dropped_packets();
 
   JsonArray sensors = obj["sensors"].to<JsonArray>();
