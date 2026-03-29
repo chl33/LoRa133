@@ -17,4 +17,10 @@ This device uses these libraries:
 - [og3x-lora](https://github.com/chl33/og3x-lora). LoRa module support for the og3 library.
 - [og3x-satellite](https://github.com/chl33/og3x-satellite). A library that helps build a satellite architecture of a base station and satellite sensors.
 
-More details to follow!
+## What's New in v0.7.0
+
+*   **Satellite Memory**: The bridge now persists its satellite network knowledge across reboots. Restarts no longer result in a blank device list.
+*   **Enhanced Visibility**: Real-time RSSI, packet counts, and human-readable "Last Seen" timers added to the web dashboard.
+*   **Mobile Optimized**: Fully responsive web interface that fits perfectly on smartphone screens.
+*   **og3 v0.6.1 Core**: Modernized backend leveraging the latest declarative dependency and file storage improvements.
+
