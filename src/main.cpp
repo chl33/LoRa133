@@ -492,8 +492,9 @@ NetHandlerStatus apiGetDevices(NetRequest* request, NetResponse* response) {
     obj["isOnline"] = device->is_online();
     obj["packetCount"] = device->packet_count();
     obj["rssi"] = device->rssi();
-    obj["lastSeenSecs"] =
-        device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
+    obj["lastSeenSecs"] = device->last_packet_millis() > 0
+                              ? static_cast<long>(millis() - device->last_packet_millis()) / 1000
+                              : -1;
     obj["droppedPackets"] = device->dropped_packets();
     obj["swVersion"] = version_string(device->software_version());
   }
@@ -541,8 +542,9 @@ NetHandlerStatus apiGetDevice(NetRequest* request, NetResponse* response) {
   obj["isOnline"] = device->is_online();
   obj["packetCount"] = device->packet_count();
   obj["rssi"] = device->rssi();
-  obj["lastSeenSecs"] =
-      device->last_packet_millis() > 0 ? (millis() - device->last_packet_millis()) / 1000 : -1;
+  obj["lastSeenSecs"] = device->last_packet_millis() > 0
+                            ? static_cast<long>(millis() - device->last_packet_millis()) / 1000
+                            : -1;
   obj["droppedPackets"] = device->dropped_packets();
   obj["hwVersion"] = version_string(device->hardware_version());
   obj["swVersion"] = version_string(device->software_version());
