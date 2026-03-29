@@ -16,3 +16,7 @@ secrets*.yaml
 /KiCAD/LoRa133/Gerber/
 /compile_commands.json
 /.cache/
+/src/svelteesp32async.h
+/svelte/dist/
+/svelte/node_modules/
+/local.ini

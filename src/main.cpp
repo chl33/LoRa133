@@ -3,7 +3,10 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <SPI.h>
 #include <SSD1306Wire.h>
+#include <WiFi.h>
+#include <Wire.h>
 #include <og3/base-station.h>
 #include <og3/constants.h>
 #include <og3/ha_app.h>
@@ -14,13 +17,15 @@
 #include <og3/satellite.pb.h>
 #include <og3/shtc3.h>
 #include <og3/text_buffer.h>
+#include <og3/web_server.h>
 #include <pb_decode.h>
 
 #include <map>
 
 #include "og3/variable.h"
+#include "svelteesp32async.h"
 
-#define VERSION "0.5.2"
+#define VERSION "0.7.0"
 
 namespace og3 {
 
@@ -48,7 +53,7 @@ HAApp s_app(HAApp::Options(kManufacturer, kModel,
                                .withOta(OtaManager::Options(OTA_PASSWORD))
                                .withApp(App::Options().withLogType(kLogType))));
 
-VariableGroup s_vg("lora");
+VariableGroup s_vg("status");
 
 static const char kTemperature[] = "temperature";
 static const char kHumidity[] = "humidity";
@@ -93,22 +98,77 @@ auto s_lora_options = []() -> LoRaModule::Options {
 VariableGroup s_lora_vg("lora");
 // This variable group is for enabling/disabling MQTT for a device.
 VariableGroup s_device_cvg("config");
-BoolVariable s_device_disable_default("disable_default", false, "disable by default",
+BoolVariable s_device_disable_default("disableDefault", false, "disable by default",
                                       VariableBase::kSettable | VariableBase::kNoPublish,
                                       s_device_cvg);
 
+std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
+
+static const char kDevicesFile[] = "/devices.json";
+
+void save_devices() {
+  base_station::Device::saveAll(kDevicesFile, &s_app.config(), s_id_to_device);
+}
+
+TaskScheduler s_save_devices_task([]() { save_devices(); }, &s_app.tasks());
+
+// Garden133 at least sends multiple packets to initialize itself.
+// Packets are separated by 15 seconds, so wait 30 more seconds before saving
+//  each time we get an update.
+void request_save_devices() { s_save_devices_task.runIn(30 * og3::kMsecInSec); }
+
+String version_string(const og3_Version& v) {
+  if (v.major == 0 && v.minor == 0 && v.patch == 0) {
+    return "Unknown";
+  }
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%u.%u.%u", v.major, v.minor, v.patch);
+  return String(buf);
+}
+
+void load_devices() {
+  base_station::Device::loadAll(
+      kDevicesFile, &s_app.config(),
+      [](uint32_t id, const char* name, uint32_t mfg_id, const char* type, uint32_t timeout_ms,
+         const og3_Version& hw_version, const og3_Version& sw_version) {
+        auto iter = s_id_to_device.emplace(
+            id, new base_station::Device(id, name, mfg_id, type, &s_app.module_system(),
+                                         &s_app.ha_discovery(), 0, s_device_cvg));
+        if (iter.second) {
+          iter.first->second->set_comms_timeout_millis(timeout_ms);
+          iter.first->second->set_hardware_version(hw_version);
+          iter.first->second->set_software_version(sw_version);
+          iter.first->second->setIsOnline(false);
+        }
+        return iter.first->second.get();
+      });
+}
+
 LoRaModule s_lora(s_lora_options(), &s_app, s_lora_vg);
+
+// Periodically check if satellite devices have timed out.
+PeriodicTaskScheduler s_availability_checker(
+    30 * kMsecInSec, 30 * kMsecInSec,
+    []() {
+      for (auto& iter : s_id_to_device) {
+        const auto& device = iter.second;
+        if (device->isTimedOut()) {
+          device->setIsOnline(false);
+        }
+      }
+    },
+    &s_app.tasks());
 
 // Update readings only 1/minute maximum.
 constexpr unsigned long kMaxMsecBetweenGardenReadings = 60 * 1000;
 
 uint8_t s_pkt_buffer[1024];
 
-Variable<unsigned> s_pkt_count("LoRa packet count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_prefix_count("bad prefix count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_crc_count("bad crc count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_size_count("bad size count", 0, "", "", 0, s_vg);
-Variable<unsigned> s_err_version_count("bad version count", 0, "", "", 0, s_vg);
+Variable<unsigned> s_pkt_count("pktCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_prefix_count("errPrefixCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_crc_count("errCrcCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_size_count("errSizeCount", 0, "", "", 0, s_vg);
+Variable<unsigned> s_err_version_count("errVersionCount", 0, "", "", 0, s_vg);
 
 const char* str(og3_Sensor_Type val) {
   switch (val) {
@@ -142,8 +202,6 @@ unsigned decimals(og3_Sensor_Type val) {
   }
 }
 
-std::map<uint32_t, std::unique_ptr<base_station::Device>> s_id_to_device;
-
 void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_size) {
   pb_istream_t istream = pb_istream_from_buffer(msg, msg_size);
   og3_Packet packet;
@@ -161,17 +219,18 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
   base_station::Device* pdevice = nullptr;
   if (dev_iter != s_id_to_device.end()) {
     pdevice = dev_iter->second.get();
-    pdevice->got_packet(seq_id, LoRa.packetRssi());
-    s_app.log().logf("Known device id:%u %s'%s' (seq_id=%u, dropped=%u).", packet.device_id,
-                     packet.has_device ? "(dev info sent) " : "", pdevice->cname(), seq_id,
-                     pdevice->dropped_packets());
+    pdevice->got_packet(seq_id, og3::s_lora.last_rssi());
+    s_app.log().logf("Known device id:%u %s'%s' (%s) (seq_id=%u, dropped=%u).", packet.device_id,
+                     packet.has_device ? "(dev info sent) " : "", pdevice->cname(),
+                     packet.device.device_type, seq_id, pdevice->dropped_packets());
   } else {
     if (!packet.has_device) {
       s_app.log().logf("No known device with id=%u (seq_id=%u).", packet.device_id, seq_id);
       return;
     }
     const auto& device = packet.device;
-    s_app.log().logf("Device: id:0x%X mfg:0x%X '%s'", device.id, device.manufacturer, device.name);
+    s_app.log().logf("Device: id:0x%X mfg:0x%X '%s' (%s)", device.id, device.manufacturer,
+                     device.name, device.device_type);
     if (device.has_hardware_version) {
       const auto& ver = device.hardware_version;
       s_app.log().logf(" hw: %u.%u.%u", ver.major, ver.minor, ver.patch);
@@ -187,9 +246,56 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
                                  seq_id, s_device_cvg));
     pdevice = iter.first->second.get();
     pdevice->set_disabled(s_device_disable_default.value());
+    request_save_devices();
+  }
+
+  if (packet.has_device) {
+    bool changed = false;
+    if (strlen(packet.device.name) > 0 && pdevice->name() != packet.device.name) {
+      pdevice->set_name(packet.device.name);
+      changed = true;
+    }
+    if (packet.device.manufacturer > 0 && pdevice->mfg_id() != packet.device.manufacturer) {
+      pdevice->set_mfg_id(packet.device.manufacturer);
+      changed = true;
+    }
+    if (strlen(packet.device.device_type) > 0 &&
+        pdevice->device_type() != packet.device.device_type) {
+      pdevice->set_device_type(packet.device.device_type);
+      changed = true;
+    }
+    if (packet.device.timeout_secs > 0) {
+      const uint32_t new_timeout_ms = packet.device.timeout_secs * 1000;
+      if (new_timeout_ms != pdevice->comms_timeout_millis()) {
+        pdevice->set_comms_timeout_millis(new_timeout_ms);
+        changed = true;
+      }
+    }
+    if (packet.device.has_hardware_version) {
+      const auto& v = packet.device.hardware_version;
+      const auto& cur = pdevice->hardware_version();
+      if (v.major != cur.major || v.minor != cur.minor || v.patch != cur.patch) {
+        pdevice->set_hardware_version(v);
+        changed = true;
+      }
+    }
+    if (packet.device.has_software_version) {
+      const auto& v = packet.device.software_version;
+      const auto& cur = pdevice->software_version();
+      if (v.major != cur.major || v.minor != cur.minor || v.patch != cur.patch) {
+        pdevice->set_software_version(v);
+        changed = true;
+      }
+    }
+    if (changed) {
+      request_save_devices();
+    }
   }
 
   s_pkt_count = s_pkt_count.value() + 1;
+
+  // Update MQTT availability message if it applies.
+  pdevice->setIsOnline(true);
 
   // Set all device sensor readings to "Failed" so we don't re-use values not included in
   //  this packet.
@@ -204,6 +310,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       if (!psensor) {
         pdevice->add_int_sensor(sensor.id, sensor.name, nullptr, sensor.units, pdevice,
                                 sensor.state_class);
+        request_save_devices();
         s_app.log().logf(
             " - set int sensor:%u (%s%s) in device:%u", sensor.id, sensor.name,
             (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
@@ -224,6 +331,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       if (!psensor) {
         pdevice->add_float_sensor(sensor.id, sensor.name, str(sensor.type), sensor.units,
                                   decimals(sensor.type), pdevice, sensor.state_class);
+        request_save_devices();
         s_app.log().logf(
             " - set sensor:%u (%s %s%s) in device:%x", sensor.id, sensor.name, sensor.units,
             (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
@@ -283,56 +391,228 @@ WebButton s_button_mqtt_config = s_app.createMqttConfigButton();
 WebButton s_button_app_status = s_app.createAppStatusButton();
 WebButton s_button_restart = s_app.createRestartButton();
 
-void handleWebRoot(AsyncWebServerRequest* request) {
-  s_html.clear();
-  html::writeTableInto(&s_html, s_vg);
+static String s_body;
+
+NetHandlerStatus apiGetWifi(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  const auto& wifi = s_app.wifi_manager();
+  json["board"] = wifi.board();
+  json["wifiPassword"] = wifi.wifiPassword();
+  json["essId"] = wifi.essId();
+  json["ipAddr"] = wifi.ipAddr();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putWifiConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_app.wifi_manager().variables().updateFromJson(obj);
+  s_app.config().write_config(s_app.wifi_manager().variables());
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetMqtt(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  const auto& mqtt = s_app.mqtt_manager();
+  json["enabled"] = mqtt.isEnabled();
+  json["hostAddr"] = mqtt.hostAddr();
+  json["authPassword"] = mqtt.authPassword();
+  json["authUser"] = mqtt.authUser();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putMqttConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_app.mqtt_manager().variables().updateFromJson(obj);
+  s_app.config().write_config(s_app.mqtt_manager().variables());
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetLora(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  s_lora_vg.toJson(json, 0);
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus putLoraConfig(NetRequest* request, NetResponse* response, JsonVariant& jsonIn) {
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  s_lora_vg.updateFromJson(obj);
+  s_app.config().write_config(s_lora_vg);
+  response->send(200, "text/plain", "ok");
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetStatus(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonObject json = jsondoc.to<JsonObject>();
+  s_app.app_status().variables().toJson(json, 0);
+  s_vg.toJson(json, 0);
+  json["mqttConnected"] = s_app.mqtt_manager().isConnected();
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
+}
+
+NetHandlerStatus apiGetDevices(NetRequest* request, NetResponse* response) {
+  JsonDocument jsondoc;
+  JsonArray arr = jsondoc.to<JsonArray>();
   for (auto& iter : s_id_to_device) {
     const auto& device = iter.second;
-    html::writeTableInto(&s_html, device->vg());
+    JsonObject obj = arr.add<JsonObject>();
+    obj["id"] = iter.first;
+    obj["name"] = device->cname();
+    obj["type"] = device->cdevice_type();
+    obj["disabled"] = device->is_disabled();
+    obj["isOnline"] = device->is_online();
+    obj["packetCount"] = device->packet_count();
+    obj["rssi"] = device->rssi();
+    obj["lastSeenSecs"] = device->last_packet_millis() > 0
+                              ? static_cast<long>(millis() - device->last_packet_millis()) / 1000
+                              : -1;
+    obj["droppedPackets"] = device->dropped_packets();
+    obj["swVersion"] = version_string(device->software_version());
   }
-  html::writeTableInto(&s_html, s_app.wifi_manager().variables());
-  html::writeTableInto(&s_html, s_app.mqtt_manager().variables());
-  html::writeTableInto(&s_html, s_lora_vg);
-  html::writeTableInto(&s_html, s_device_cvg);
-  s_html += HTML_BUTTON("/lora", "LoRa");
-  s_html += HTML_BUTTON("/device", "Device disable");
-  s_button_wifi_config.add_button(&s_html);
-  s_button_mqtt_config.add_button(&s_html);
-  s_button_app_status.add_button(&s_html);
-  s_button_restart.add_button(&s_html);
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
 }
 
-void handleLoraConfig(AsyncWebServerRequest* request) {
-  ::og3::read(*request, s_lora_vg);
-  s_html.clear();
-  html::writeFormTableInto(&s_html, s_lora_vg);
-  s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
+NetHandlerStatus apiPostDeviceForget(NetRequest* request, NetResponse* response) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  s_id_to_device.erase(iter);
+  request_save_devices();
+  response->send(200, "application/json", "{\"isOk\":true}");
+  NET_REPLY(request, ESP_OK);
 }
 
-void handleDeviceConfig(AsyncWebServerRequest* request) {
-  ::og3::read(*request, s_device_cvg);
-  s_html.clear();
-  html::writeFormTableInto(&s_html, s_device_cvg);
-  s_html += HTML_BUTTON("/", "Back");
-  sendWrappedHTML(request, s_app.board_cname(), kSoftware, s_html.c_str());
-  s_app.config().write_config(s_lora_vg);
+NetHandlerStatus apiGetDevice(NetRequest* request, NetResponse* response) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  const auto& device = iter->second;
+  JsonDocument jsondoc;
+  JsonObject obj = jsondoc.to<JsonObject>();
+  obj["id"] = id;
+  obj["name"] = device->cname();
+  obj["type"] = device->cdevice_type();
+  obj["disabled"] = device->is_disabled();
+  obj["isOnline"] = device->is_online();
+  obj["packetCount"] = device->packet_count();
+  obj["rssi"] = device->rssi();
+  obj["lastSeenSecs"] = device->last_packet_millis() > 0
+                            ? static_cast<long>(millis() - device->last_packet_millis()) / 1000
+                            : -1;
+  obj["droppedPackets"] = device->dropped_packets();
+  obj["hwVersion"] = version_string(device->hardware_version());
+  obj["swVersion"] = version_string(device->software_version());
+
+  JsonArray sensors = obj["sensors"].to<JsonArray>();
+  for (const auto& siter : device->id_to_float_sensor()) {
+    const auto& sensor = siter.second;
+    JsonObject sobj = sensors.add<JsonObject>();
+    sobj["id"] = siter.first;
+    sobj["name"] = sensor->cname();
+    sobj["units"] = sensor->cunits();
+    sobj["type"] = "float";
+    if (sensor->value().failed()) {
+      sobj["value"] = nullptr;
+    } else {
+      sobj["value"] = sensor->value().value();
+    }
+  }
+  for (const auto& siter : device->id_to_int_sensor()) {
+    const auto& sensor = siter.second;
+    JsonObject sobj = sensors.add<JsonObject>();
+    sobj["id"] = siter.first;
+    sobj["name"] = sensor->cname();
+    sobj["units"] = sensor->cunits();
+    sobj["type"] = "int";
+    if (sensor->value().failed()) {
+      sobj["value"] = nullptr;
+    } else {
+      sobj["value"] = sensor->value().value();
+    }
+  }
+
+  s_body.clear();
+  serializeJson(jsondoc, s_body);
+  response->send(200, "application/json", s_body.c_str());
+  NET_REPLY(request, ESP_OK);
 }
 
-void process_lora_packets() {
-  const int buffer_bytes = sizeof(s_pkt_buffer);
-  const int nbytes_available = LoRa.available();
-  const int nbytes = std::min(nbytes_available, buffer_bytes);
-  LoRa.readBytes(s_pkt_buffer, nbytes);
+NetHandlerStatus apiPutDeviceConfig(NetRequest* request, NetResponse* response,
+                                    JsonVariant& jsonIn) {
+  if (!request->hasParam("id")) {
+    response->send(400, "text/plain", "missing id");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  uint32_t id = strtoul(request->getParam("id")->value().c_str(), nullptr, 0);
+  auto iter = s_id_to_device.find(id);
+  if (iter == s_id_to_device.end()) {
+    response->send(404, "text/plain", "not found");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  if (!jsonIn.is<JsonObject>()) {
+    response->send(500, "text/plain", "not a json object");
+    NET_REPLY(request, ESP_FAIL);
+  }
+  JsonObject obj = jsonIn.as<JsonObject>();
+  iter->second->vg().updateFromJson(obj);
+  response->send(200, "application/json", "{\"isOk\":true}");
+  NET_REPLY(request, ESP_OK);
+}
 
-  pkt::PacketReader reader(s_pkt_buffer, sizeof(s_pkt_buffer));
+void process_lora_packets(const uint8_t* buffer, size_t nbytes) {
+  pkt::PacketReader reader(buffer, nbytes);
   switch (reader.parse()) {
     case pkt::PacketReader::ParseResult::kOk:
       break;
     case pkt::PacketReader::ParseResult::kBadPrefix:
-      s_app.log().logf("Pailed to parse packet: bad prefix. %02x %02x %02x %02x.", s_pkt_buffer[0],
-                       s_pkt_buffer[1], s_pkt_buffer[2], s_pkt_buffer[3]);
+      s_app.log().logf("Failed to parse packet: bad prefix. %02x %02x %02x %02x.", buffer[0],
+                       buffer[1], buffer[2], buffer[3]);
       s_err_prefix_count = s_err_prefix_count.value() + 1;
       return;
     case pkt::PacketReader::ParseResult::kBadCrc:
@@ -390,11 +670,28 @@ void setup() {
     og3::s_oled.display(text);
   });
 
-  og3::s_app.web_server().on("/", og3::handleWebRoot);
-  og3::s_app.web_server().on("/config", [](AsyncWebServerRequest* request) {});
-  og3::s_app.web_server().on("/lora", og3::handleLoraConfig);
-  og3::s_app.web_server().on("/device", og3::handleDeviceConfig);
+  initSvelteStaticFiles(&og3::s_app.web_server_module().native_server());
+  og3::s_app.web_server_module().on("/api/wifi", HTTP_GET, og3::apiGetWifi);
+  og3::s_app.web_server_module().on("/api/mqtt", HTTP_GET, og3::apiGetMqtt);
+  og3::s_app.web_server_module().on("/api/lora", HTTP_GET, og3::apiGetLora);
+  og3::s_app.web_server_module().on("/api/status", HTTP_GET, og3::apiGetStatus);
+  og3::s_app.web_server_module().on("/api/devices", HTTP_GET, og3::apiGetDevices);
+  og3::s_app.web_server_module().on("/api/device", HTTP_GET, og3::apiGetDevice);
+
+  og3::s_app.web_server_module().onJson("/api/wifi", HTTP_PUT, og3::putWifiConfig);
+  og3::s_app.web_server_module().onJson("/api/mqtt", HTTP_PUT, og3::putMqttConfig);
+  og3::s_app.web_server_module().onJson("/api/lora", HTTP_PUT, og3::putLoraConfig);
+  og3::s_app.web_server_module().onJson("/api/device/config", HTTP_PUT, og3::apiPutDeviceConfig);
+  og3::s_app.web_server_module().on("/api/device/forget", HTTP_POST, og3::apiPostDeviceForget);
+  og3::s_app.web_server_module().on("/api/restart", HTTP_POST,
+                                    [](og3::NetRequest* request, og3::NetResponse* response) {
+                                      response->send(200, "text/plain", "restarting");
+                                      og3::s_app.tasks().runIn(1000, []() { ESP.restart(); });
+                                      NET_REPLY(request, ESP_OK);
+                                    });
+
   og3::s_app.setup();
+  og3::load_devices();
 }
 
 void loop() {
@@ -405,16 +702,11 @@ void loop() {
   }
 
   // Try to parse a packet.
-  const int packetSize = LoRa.parsePacket();
-  if (!packetSize) {
-    return;
-  }
-
-  // Received a packet.
-  og3::s_app.log().logf("Got packet: %d bytes.", packetSize);
-
-  // read packet
-  while (LoRa.available()) {
-    og3::process_lora_packets();
+  int packetSize = og3::s_lora.poll_packet(og3::s_pkt_buffer, sizeof(og3::s_pkt_buffer));
+  if (packetSize > 0) {
+    // Received a packet.
+    og3::s_app.log().logf("Got packet: %d bytes (RSSI: %.1f, SNR: %.1f).", packetSize,
+                          og3::s_lora.last_rssi(), og3::s_lora.last_snr());
+    og3::process_lora_packets(og3::s_pkt_buffer, packetSize);
   }
 }

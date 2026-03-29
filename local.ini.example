@@ -1,0 +1,15 @@
+[platformio]
+default_envs = usb
+
+[local]
+build_flags =
+
+[wifi]
+upload_protocol = espota
+upload_flags =
+	--auth='${secrets.otaPassword}'
+
+
+[env:lora133a]
+extends = node32s, wifi
+upload_port = BOARD_IP_ADDRESSS
