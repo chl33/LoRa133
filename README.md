@@ -10,6 +10,10 @@ This is the PCBA documented in [`KiCAD/LoRa133/`](KiCAD/LoRa133/).
 
 ![LoRa133 PCBA](images/lora133-pcba.png)
 
+Here is what the web interface (written in Svelte) looks like:
+
+![LoRa133 Web UI](images/LoRa133-web.png)
+
 Please see the [Introducing Garden133](https://selectiveappeal.org/posts/garden133/) blog post for more information.
 
 This device uses these libraries:
