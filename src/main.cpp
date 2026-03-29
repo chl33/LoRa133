@@ -112,7 +112,10 @@ void save_devices() {
 
 TaskScheduler s_save_devices_task([]() { save_devices(); }, &s_app.tasks());
 
-void request_save_devices() { s_save_devices_task.runIn(90 * og3::kMsecInSec); }
+// Garden133 at least sends multiple packets to initialize itself.
+// Packets are separated by 15 seconds, so wait 30 more seconds before saving
+//  each time we get an update.
+void request_save_devices() { s_save_devices_task.runIn(30 * og3::kMsecInSec); }
 
 String version_string(const og3_Version& v) {
   if (v.major == 0 && v.minor == 0 && v.patch == 0) {
@@ -307,6 +310,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       if (!psensor) {
         pdevice->add_int_sensor(sensor.id, sensor.name, nullptr, sensor.units, pdevice,
                                 sensor.state_class);
+        request_save_devices();
         s_app.log().logf(
             " - set int sensor:%u (%s%s) in device:%u", sensor.id, sensor.name,
             (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
@@ -327,6 +331,7 @@ void parse_device_packet(uint16_t seq_id, const uint8_t* msg, std::size_t msg_si
       if (!psensor) {
         pdevice->add_float_sensor(sensor.id, sensor.name, str(sensor.type), sensor.units,
                                   decimals(sensor.type), pdevice, sensor.state_class);
+        request_save_devices();
         s_app.log().logf(
             " - set sensor:%u (%s %s%s) in device:%x", sensor.id, sensor.name, sensor.units,
             (sensor.state_class == og3_Sensor_StateClass_STATE_CLASS_MEASUREMENT ? " measurement"
