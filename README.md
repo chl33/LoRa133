@@ -23,7 +23,7 @@ This device uses these libraries:
 
 ## What's New in v0.7.0
 
-*   **Satellite Memory**: The bridge now persists its satellite network knowledge across reboots. Restarts no longer result in a blank device list.
+*   **Satellite Device Memory**: The bridge now persists its satellite network knowledge across reboots. Restarts no longer result in a blank device list.
 *   **Enhanced Visibility**: Real-time RSSI, packet counts, and human-readable "Last Seen" timers added to the web dashboard.
 *   **Mobile Optimized**: Fully responsive web interface that fits perfectly on smartphone screens.
 *   **og3 v0.6.1 Core**: Modernized backend leveraging the latest declarative dependency and file storage improvements.
