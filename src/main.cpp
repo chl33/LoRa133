@@ -25,7 +25,7 @@
 #include "og3/variable.h"
 #include "svelteesp32async.h"
 
-#define VERSION "0.6.0"
+#define VERSION "0.7.0"
 
 namespace og3 {
 
