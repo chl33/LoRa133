@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-working-directory: svelte
+          cache-dependency-path: svelte/package-lock.json
 
       - name: Install Node.js dependencies
         working-directory: svelte
